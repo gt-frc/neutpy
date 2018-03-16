@@ -19,42 +19,6 @@
         `======/        
 
 
-###############################################################################    
-##   TO DO LIST
-###############################################################################
-
-
-## MEDIUM PRIORITY
--   write some basic program documentation
--   iterate over neutral temperatures
--   implement input file checking
--   implement degas cross sections
--   implement sparse matrix solver
--   improve documentation for each function
--   implement length frac in recombination source part of source vector
-
-## LOW PRIORITY
--   make more pythonic in general
--   specify array type anywhere one is created
--   wrap some things into functions where appropriate (face2msize, msize2face?)
--   create placeholders for Lambda_ik and P_0i_k, even if they are
-    set equal to Lambda_i and P_0i for now
--   deal with the possibility of thermal neutrals reflecting 
-    back into the slow group
--   initialize face arrays in a loop, just like when reading the
-    input file (should simplify and shorten the code somewhat)
--   test ability to handle cells with more than 4 sides... I guess.
-
-## MAJOR UPGRADES PLANNED... MAYBE
--   anisotropy
--   solving diffusion equation with cells (FEM), if necessary
--   multi-species
--   3D capability
--   account for curvature in tokamak toroidal direction
--   neutral-neutral interactions
--   make a bickley naylor lookup file
--   make a t_coef lookup file (for bigger projects)
-
 @author: Max Hill
 """
 
