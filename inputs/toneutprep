@@ -1,0 +1,36 @@
+ne_file     = /144977_3000/gt3_144977_3000_ne.dat
+ni_file     = /144977_3000/gt3_144977_3000_ni.dat
+Te_file     = /144977_3000/gt3_144977_3000_Te.dat
+Ti_file     = /144977_3000/gt3_144977_3000_Ti.dat
+psirz_file  = /144977_3000/gt3_144977_3000_psirz.dat
+wall_file   = /144977_3000/gt3_diiid_wall.dat
+
+BT0         = 2.11
+
+pfr_ni_val = 1.0E14
+pfr_ne_val = 1.0E14
+pfr_Ti_val = 0.002
+pfr_Te_val = 0.002
+
+
+###############################################################################
+# CONFIG - YOU CAN PROBABLY LEAVE THESE ALONE IF YOU DON'T KNOW WHAT THEY ARE
+###############################################################################
+verbose     = 1
+
+corelines_begin = 0.75
+num_corelines = 10
+
+sollines_psi_max = 1.07
+num_sollines = 6
+
+xi_sep_pts = 50
+ib_trim_off = 0.1
+ob_trim_off = 0.1
+
+xi_ib_pts = 10
+xi_ob_pts = 10
+
+core_pol_pts = 30
+ib_div_pol_pts = 7
+ob_div_pol_pts = 7
