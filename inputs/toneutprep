@@ -1,3 +1,5 @@
+neutpy_outfile = neutpy_outfile
+
 ne_file     = /144977_3000/gt3_144977_3000_ne.dat
 ni_file     = /144977_3000/gt3_144977_3000_ni.dat
 Te_file     = /144977_3000/gt3_144977_3000_Te.dat

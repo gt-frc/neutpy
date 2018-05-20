@@ -111,6 +111,7 @@ class neutpy_prep():
         r2df = "r'%s\( *(\d*)\) *= *((?:[+\-]?\d*\.?\d*(?:[eE]?[+\-]?\d+)?,?)*) *'%(v)"
 
         self.invars = {}
+        self.invars["neutpy_outfile"]   = ["str",   r0ds]
         self.invars["corelines_begin"]  = ["float", r0df]
         self.invars["num_corelines"]    = ["int",   r0di]
         self.invars["sollines_psi_max"] = ["float", r0df]
@@ -166,9 +167,7 @@ class neutpy_prep():
 
                     #read in the names of input files that define a line in the R-Z plane 
                     for v in self.in_line2d:
-                        #print 'v = ',count,v
                         exec("result = re.match(%s,line)"%(self.in_line2d[v][1]))
-                        #print result
                         if result:
                             exec("self.%s = %s(result.group(1))"%(v,self.in_line2d[v][0])) 
 
@@ -572,8 +571,6 @@ class neutpy_prep():
             self.ne_pts = np.vstack((self.ne_pts,np.append(pt,self.ne_sep_val)))
             self.Ti_kev_pts = np.vstack((self.Ti_kev_pts,np.append(pt,self.Ti_kev_sep_val)))
             self.Te_kev_pts = np.vstack((self.Te_kev_pts,np.append(pt,self.Te_kev_sep_val)))
-
-
 
     def sol_nT(self):
         #Calculate n,T in SOL using Bohm diffusion, core data from radial profile input files, and input
@@ -1305,10 +1302,6 @@ class neutpy_prep():
 
             if side1inline or side2inline or side3inline:
                 nb = (nei == -1).sum() #count number of times -1 occurs in nei
-                #print 'nb = ',nb
-                #print side1_midpt[index]
-                #print side2_midpt[index]
-                #print side3_midpt[index]
                 if nb == 1: #cell has one plasma border
                     
                     #create plasma cell
@@ -1350,9 +1343,6 @@ class neutpy_prep():
         wcellnum = pcellnum #was already advanced in the plasmacell loop. Don't add 1.
         wcellcount = 0
         
-        print np.asarray(self.wall_ring.xy).T
-        plt.scatter(np.asarray(self.wall_ring.xy).T[:,0],np.asarray(self.wall_ring.xy).T[:,1],marker='o',s=0.5,color='red')
-        
         for index, nei in enumerate(neighbors):
             #for each face of the cell, find the mid-point and check if it falls in line
             side1inline = self.isinline(side1_midpt[index],self.wall_ring)
@@ -1360,7 +1350,6 @@ class neutpy_prep():
             side3inline = self.isinline(side3_midpt[index],self.wall_ring)
             
             if side1inline or side2inline or side3inline:
-                print index,nei,side1inline,side2inline,side3inline
                 nb = (nei == -1).sum() #count number of times -1 occurs in nei
                 if nb == 1: #cell has one wall border
                     #identify the side that is the wall cell
@@ -1407,7 +1396,7 @@ class neutpy_prep():
                     wcellcount +=1
         wallcells = np.delete(wallcells,-1,0)
         wallcells = wallcells.astype('int')
-        sys.exit()
+
         ## POPULATE CELL DENSITIES AND TEMPERATURES
         #create array of all points in plasma, sol, id, and od
         #tri_param = np.vstack((plasma_param,sol_param,id_param,od_param))
@@ -1558,7 +1547,8 @@ class neutpy_prep():
         time0 = time.time()
         self.neutpy_inst = neutpy(inarrs=toneutpy)
         time1 = time.time()
-        print 'neutpy time = ',time1-time0
+        minutes,seconds = divmod(time1-time0, 60)
+        print 'NEUTPY TIME = {} min, {} sec'.format(minutes,seconds)
         plot = neutpyplot(self.neutpy_inst)
         self.nn_s_raw = self.neutpy_inst.cell_nn_s
         self.nn_t_raw = self.neutpy_inst.cell_nn_t
@@ -1572,7 +1562,7 @@ class neutpy_prep():
         #the file contains R,Z coordinates and then the values of several calculated parameters
         #at each of those points.
         
-        f = open(self.neutfile_loc,'w')
+        f = open('./outputs/'+self.neutpy_outfile,'w')
         f.write(('{:^18s}'*8).format('R','Z','n_n_slow','n_n_thermal','n_n_total','izn_rate_slow','izn_rate_thermal','izn_rate_total'))
         for i,pt in enumerate(self.midpts):
             f.write(('\n'+'{:>18.5f}'*2+'{:>18.5E}'*6).format(
