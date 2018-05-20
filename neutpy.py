@@ -8,13 +8,15 @@ The neutpy module contains three classes: neutpy, read_infile, and neutpyplot.
 from __future__ import division
 import sys
 import os
+import re
 from math import sqrt, pi, sin, tan, exp
 import numpy as np
 from scipy.interpolate import griddata, interp1d
 from scipy import integrate
 from scipy.constants import m_p
 from scipy.sparse.linalg import spsolve
-from scipy.linalg import solve
+from scipy.sparse import coo_matrix
+#from scipy.linalg import solve
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Polygon
@@ -60,7 +62,7 @@ class neutpy():
         self.solve_matrix()
         print 'CALCULATING NEUTRAL DENSITY'
         self.calc_neutral_dens()
-        print 'WRITING OUTPUTS'
+        print 'WRITING NEUTPY OUTPUTS'
         #self.write_outputs()
     
     #isclose is included in python3.5+, so you can delete this if the code
@@ -105,9 +107,6 @@ class neutpy():
         bar = '█' * filled_length + '-' * (bar_length - filled_length)
     
         sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
-    
-        if iteration == total:
-            sys.stdout.write('\n\n')
     
     @staticmethod
     def calc_e_reflect(e0, am1, am2, z1, z2):
@@ -436,7 +435,7 @@ class neutpy():
                 self.face_mfp_t[i,j] = self.face_vnt[i,j] / (self.cell_ne[i]*self.cell_sv_ion[i] + self.cell_ni[i]*self.face_sv_cx_t[i,j] + self.cell_ni[i]*self.face_sv_el_t[i,j])
 
     def calc_tcoefs (self):
-        def f(phi, xi, x_comp,y_comp, x_coords, y_coords, reg, mfp):
+        def f(phi, xi, x_comp,y_comp, x_coords, y_coords, reg, mfp, fromcell,tocell,throughcell):
             try: 
                 result = (2.0/(pi*-1*x_comp[-1])) * sin(phi) * self.Ki3_fit( li(phi,xi,x_coords,y_coords,reg) / mfp)
                 return result
@@ -447,14 +446,16 @@ class neutpy():
                 print 'mfp = ',mfp
                 print 'li/mfp = ',li(phi,xi,x_coords,y_coords,reg)/mfp
                 #print 'Ki3_fit( li / mfp) = ',self.Ki3_fit( li(phi,xi,x_comp,y_comp,reg) / mfp)
-                print 'x_comp[-1] = ',x_comp[-1]
+                #print 'x_comp[-1] = ',x_comp[-1]
+                print 'fromcell = ',fromcell
+                print 'tocell = ',tocell
+                print 'throughcell = ',throughcell
                 print
 
                 sys.exit()
                 if li(phi,xi,x_coords,y_coords,reg) / mfp > 50:
                     result = (2.0/(pi*-1*x_comp[-1])) * sin(phi) * self.Ki3_fit( 50.0)
                     return result
-            
             
         def li(phi,xi,x_coords,y_coords,reg):
 
@@ -486,14 +487,14 @@ class neutpy():
             
             return sqrt(x_int**2 + y_int**2)
         
-        def phi_limits(xi,x_comp,y_comp,x_coords,y_coords,reg,mfp):
+        def phi_limits(xi,x_comp,y_comp,x_coords,y_coords,reg,mfp, fromcell,tocell,throughcell):
             x_coords = x_coords - xi
             vert_phis = np.arctan2(y_coords,x_coords)
             vert_phis[0] = 0
             vert_phis[-1] = pi
             return [vert_phis[reg],vert_phis[reg+1]]
                  
-        def xi_limits(x_comp,y_comp,x_coords,y_coords,reg,mfp):
+        def xi_limits(x_comp,y_comp,x_coords,y_coords,reg,mfp, fromcell,tocell,throughcell):
             return [0, -1*x_comp[-1]]
         
         self.T_coef_s    = np.zeros((self.nCells,4,4),dtype='int')
@@ -505,7 +506,7 @@ class neutpy():
         #create bickley-naylor fit (much faster than evaluating Ki3 over and over)
         def Ki3(x):
             return integrate.quad(lambda theta: (sin(theta))**2 * exp(-x/sin(theta)) ,0,pi/2)[0]
-        Ki3_x = np.linspace(0,50,200)
+        Ki3_x = np.linspace(0,80,200)
         Ki3_v = np.zeros(Ki3_x.shape)
         for i,x in enumerate(Ki3_x):
             Ki3_v[i] = Ki3(x)
@@ -516,6 +517,7 @@ class neutpy():
         trans_coef_file.write(('{:^6s}'*3+'{:^12s}'*4+'\n').format("from","to","via","T_slow","T_thermal","mfp_s","mfp_t"))
         outof = np.sum(self.nSides[:self.nCells]**2)
         self.timetrack = 0.0
+        print
         for (i,j,k),val in np.ndenumerate(self.T_coef_s):
             progress = self.nSides[i]**2 * i #+ self.nSides[i]*j + k    
 
@@ -551,13 +553,19 @@ class neutpy():
                                     "x_coords":x_coords,
                                     "y_coords":y_coords,
                                     "reg":reg,
-                                    "mfp":self.face_mfp_s[i,j]} #not sure if this is j or k
+                                    "mfp":self.face_mfp_s[i,j],#not sure if this is j or k
+                                    "fromcell":adj_cells[0],
+                                    "tocell":adj_cells[k-j],
+                                    "throughcell":i}
                         kwargs_t = {"x_comp":x_comp,
                                     "y_comp":y_comp,
                                     "x_coords":x_coords,
                                     "y_coords":y_coords,
                                     "reg":reg,
-                                    "mfp":self.face_mfp_t[i,j]}
+                                    "mfp":self.face_mfp_t[i,j],
+                                    "fromcell":adj_cells[0],
+                                    "tocell":adj_cells[k-j],
+                                    "throughcell":i}
                         nx = 10
                         ny = 10
                         self.T_coef_t[i,j,k] = self.midpoint2D(f, phi_limits, xi_limits, nx, ny, **kwargs_t)
@@ -568,6 +576,8 @@ class neutpy():
                     trans_coef_file.write(('{:>6d}'*3+'{:>12.3E}'*4+'\n').format(int(self.T_from[i,j,k]),int(self.T_to[i,j,k]),int(self.T_via[i,j,k]),self.T_coef_s[i,j,k],self.T_coef_t[i,j,k],self.face_mfp_s[i,j],self.face_mfp_t[i,j]))
         
             self.print_progress(progress, outof)
+            
+        print '\n'
         trans_coef_file.close()
 
         #create t_coef_sum arrays for use later
@@ -596,6 +606,14 @@ class neutpy():
                     flux_pos[pos_count,1] = i
                     flux_pos[pos_count,2] = self.adjCell[i,j]
                     pos_count+=1
+
+        m_sparse=1
+        
+        if m_sparse==1 or m_sparse==2:
+            #construct sparse matrix using coordinate list (COO) method 
+            m_row  = []
+            m_col  = []
+            m_data = []
 
         #M_row = 0
         for i in range(0,self.nCells):
@@ -638,14 +656,37 @@ class neutpy():
                         coll_st = (1-self.tcoef_sum_s[i,k]) * self.c_ik_s[i,k] * \
                                         (self.P_0i_t[i]*self.face_len_frac[i,j] + (1-self.P_0i_t[i])*self.c_i_t[i]*self.P_i_t[i]*self.face_len_frac[i,j])
                         #SLOW GROUP EQUATIONS
-                        #from slow group into slow group
-                        M_matrix[M_row_s, M_col_s]  = uncoll_ss + coll_ss
-                        #matrix: from thermal group into slow group
-                        M_matrix[M_row_s, M_col_t]  = coll_ts
-                        #matrix: from slow group into thermal group
-                        M_matrix[M_row_t, M_col_s]  = coll_st
-                        #matrix: from thermal group into thermal group
-                        M_matrix[M_row_t, M_col_t]  = uncoll_tt + coll_tt
+                        if m_sparse==0 or m_sparse==2:
+                            #matrix: from slow group into slow group
+                            M_matrix[M_row_s, M_col_s]  = uncoll_ss + coll_ss
+                            #matrix: from thermal group into slow group
+                            M_matrix[M_row_s, M_col_t]  = coll_ts
+                            #matrix: from slow group into thermal group
+                            M_matrix[M_row_t, M_col_s]  = coll_st
+                            #matrix: from thermal group into thermal group
+                            M_matrix[M_row_t, M_col_t]  = uncoll_tt + coll_tt
+                            
+                        if m_sparse==1 or m_sparse==2:
+                            #matrix: from slow group into slow group
+                            m_row.append(M_row_s)
+                            m_col.append(M_col_s)
+                            m_data.append(uncoll_ss + coll_ss)
+                            
+                            #matrix: from thermal group into slow group
+                            m_row.append(M_row_s)
+                            m_col.append(M_col_t)
+                            m_data.append(coll_ts)
+                            
+                            #matrix: from slow group into thermal group
+                            m_row.append(M_row_t)
+                            m_col.append(M_col_s)
+                            m_data.append(coll_st)
+                            
+                            #matrix: from thermal group into thermal group
+                            m_row.append(M_row_t)
+                            m_col.append(M_col_t)
+                            m_data.append(uncoll_tt + coll_tt)
+                            
                         
                     ###############################################################
                     ## FROM PLASMA CORE
@@ -670,14 +711,35 @@ class neutpy():
                         coll_ts = 0
                         coll_st = 0
                         
-                        #matrix: from slow group into slow group
-                        M_matrix[M_row_s, M_col_s]  = uncoll_ss + coll_ss
-                        #matrix: from thermal group into slow group
-                        M_matrix[M_row_s, M_col_t]  = coll_ts
-                        #matrix: from slow group into thermal group
-                        M_matrix[M_row_t, M_col_s]  = coll_st
-                        #matrix: from thermal group into thermal group
-                        M_matrix[M_row_t, M_col_t]  = uncoll_tt + coll_tt
+                        if m_sparse==0 or m_sparse==2:
+                            #matrix: from slow group into slow group
+                            M_matrix[M_row_s, M_col_s]  = uncoll_ss + coll_ss
+                            #matrix: from thermal group into slow group
+                            M_matrix[M_row_s, M_col_t]  = coll_ts
+                            #matrix: from slow group into thermal group
+                            M_matrix[M_row_t, M_col_s]  = coll_st
+                            #matrix: from thermal group into thermal group
+                            M_matrix[M_row_t, M_col_t]  = uncoll_tt + coll_tt
+                        if m_sparse==1 or m_sparse==2:
+                            #matrix: from slow group into slow group
+                            m_row.append(M_row_s)
+                            m_col.append(M_col_s)
+                            m_data.append(uncoll_ss + coll_ss)
+                            
+                            #matrix: from thermal group into slow group
+                            m_row.append(M_row_s)
+                            m_col.append(M_col_t)
+                            m_data.append(coll_ts)
+                            
+                            #matrix: from slow group into thermal group
+                            m_row.append(M_row_t)
+                            m_col.append(M_col_s)
+                            m_data.append(coll_st)
+                            
+                            #matrix: from thermal group into thermal group
+                            m_row.append(M_row_t)
+                            m_col.append(M_col_t)
+                            m_data.append(uncoll_tt + coll_tt)
         
                     ###############################################################
                     ## FROM WALL
@@ -744,19 +806,40 @@ class neutpy():
                         #slow neutrals can hit the wall, be reemitted as slow, and then collide to enter and stay in the thermal group
                         coll_reem_st = (1-self.face_refl_n_s[face_loc])*(1-self.face_f_abs[face_loc])*(1-self.tcoef_sum_s[i,k]) * \
                                             self.c_ik_s[i,k]*(self.P_0i_t[i]*self.face_len_frac[i,j] + (1-self.P_0i_t[i])*self.c_i_t[i]*self.P_i_t[i]*self.face_len_frac[i,j])
-        
-                        #matrix: from slow group into slow group
-                        M_matrix[M_row_s, M_col_s] = uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss
-                        #matrix: from thermal group into slow group
-                        M_matrix[M_row_s, M_col_t] = uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts
-                        #matrix: from slow group into thermal group
-                        M_matrix[M_row_t, M_col_s] = uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st
-                        #matrix: from thermal group into thermal group
-                        M_matrix[M_row_t, M_col_t] = uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt          
-        
+                        
+                        if m_sparse==0 or m_sparse==2:
+                            #matrix: from slow group into slow group
+                            M_matrix[M_row_s, M_col_s] = uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss
+                            #matrix: from thermal group into slow group
+                            M_matrix[M_row_s, M_col_t] = uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts
+                            #matrix: from slow group into thermal group
+                            M_matrix[M_row_t, M_col_s] = uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st
+                            #matrix: from thermal group into thermal group
+                            M_matrix[M_row_t, M_col_t] = uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt          
+                        if m_sparse==1 or m_sparse==2:
+                            #matrix: from slow group into slow group
+                            m_row.append(M_row_s)
+                            m_col.append(M_col_s)
+                            m_data.append(uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss)
+                            
+                            #matrix: from thermal group into slow group
+                            m_row.append(M_row_s)
+                            m_col.append(M_col_t)
+                            m_data.append(uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts)
+                            
+                            #matrix: from slow group into thermal group
+                            m_row.append(M_row_t)
+                            m_col.append(M_col_s)
+                            m_data.append(uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st)
+                            
+                            #matrix: from thermal group into thermal group
+                            m_row.append(M_row_t)
+                            m_col.append(M_col_t)
+                            m_data.append(uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt)
+                
         
         #create source vector
-        
+
         #account for external sources
         flux_cells = self.adjCell[np.where(self.face_s_ext>0)]
         flux_vals  = self.face_s_ext[np.where(self.face_s_ext>0)]
@@ -824,15 +907,25 @@ class neutpy():
                         source[i] = source[i] + incoming_flux * (1.0-self.tcoef_sum_t[face_from_loc]) * \
                                     self.c_ik_t[face_from_loc]*(self.P_0i_t[cell_io]*self.face_len_frac[face_to_loc] + (1.0-self.P_0i_t[cell_io])*self.c_i_t[cell_io]*self.P_i_t[cell_io]*self.face_len_frac[face_to_loc])
                         if incoming_flux<0:
+                            print 'incoming flux less than zero'
+                            print 'stopping'
                             sys.exit()
 
-        #CREATE FINAL MATRIX
-        M_matrix = np.identity(M_size) - M_matrix
-        
+        #CREATE FINAL MATRIX AND SOLVE
+        if m_sparse==0 or m_sparse==2:
+            M_matrix = np.identity(M_size) - M_matrix
+            flux_out = spsolve(M_matrix, source)
+        if m_sparse==1 or m_sparse==2:
+            #multiply m_data by -1 and append "identify matrix"
+            #note: we're taking advantage of the way coo_matrix handles duplicate
+            #entries to achieve the same thing as I - M
+            m_row  = np.concatenate(( np.asarray(m_row),  np.arange(0,M_size)))
+            m_col  = np.concatenate(( np.asarray(m_col),  np.arange(0,M_size)))
+            m_data = np.concatenate((-np.asarray(m_data), np.ones(M_size)))
+            m_sp_final = coo_matrix((m_data, (m_row, m_col))).tocsc()
+            flux_out = spsolve(m_sp_final,source)
+
         #np.savetxt(os.getcwd()+'/outputs/matrix.txt',M_matrix,fmt='%1.5f')
-        
-        flux_out = spsolve(M_matrix, source)
-        
         self.flux_out_s = np.zeros((self.nCells,4))
         self.flux_out_t = np.zeros((self.nCells,4))
         flux_counter = 0
@@ -900,18 +993,14 @@ class neutpy():
         self.cell_nn_s = self.cell_izn_rate_s / (self.cell_ni*self.cell_sv_ion*self.cell_area)
         self.cell_nn_t = self.cell_izn_rate_t / (self.cell_ni*self.cell_sv_ion*self.cell_area)
         self.cell_nn = self.cell_izn_rate / (self.cell_ni*self.cell_sv_ion*self.cell_area)
-        print
-        print 'cell_izn rate'
-        for i,v in enumerate(self.cell_izn_rate):
-            print i,self.cell_izn_rate_s[i],self.cell_izn_rate_t[i],self.cell_ni[i],self.cell_sv_ion[i],self.cell_area[i],self.cell_nn_s[i],self.cell_nn_t[i]
-        print
         
         ## fix negative values (usually won't be necessary)
         for i,v1 in enumerate(self.cell_nn):
             if v1<0:
                 #get neutral densities of adjacent cells
                 #average the positive values
-                print i,v1
+                print 'Found a negative density. Fixing by using average of surrounding cells.'
+                print 'You probably need to adjust the way you are calculating the transmission coefficients.'
                 nn_sum = 0
                 nn_count = 0
                 for j,v2 in enumerate(self.adjCell[i]):
@@ -952,7 +1041,7 @@ class neutpy():
         
 class read_infile():
     def __init__(self,infile):
-        print ('reading toneut file')
+        print ('READING NEUTPY INPUT FILE')
         
         #some regex commands we'll use when reading stuff in from the input file
         r0di = "r'.*%s *= *([ ,\d]*) *'%(v)"
@@ -1064,6 +1153,7 @@ class read_infile():
 class neutpyplot():
     
     def __init__(self,neut=None):
+        print 'GENERATING NEUTPY PLOTS'
         sys.setrecursionlimit(10000)
         if neut==None: #then look for input file 'neutpy_in_generated'
             neut = infile('neutpy_in_generated2')
@@ -1131,7 +1221,6 @@ class neutpyplot():
         cellscomplete = np.zeros(neut.nCells)
         cellscomplete[0] = 1
         self.xs,self.ys = loop(neut,0,0,cellscomplete,xcoords,ycoords)
-        print 'loop complete'
         
         #plot cell diagram
         #grid = plt.figure(figsize=(160,240))
@@ -1152,9 +1241,9 @@ class neutpyplot():
             #    v1 = np.append(v1,v1[0])
             #    v2 = np.append(v2,v2[0])
             ax1.plot(v1,v2,color='black',lw=1)  
-        plt.tight_layout()
-        grid.savefig(".figures/neutpy_mesh.png", dpi=300,transparent=True)
-        plt
+        #fig.tight_layout()
+        grid.savefig("./figures/neutpy_mesh.png", dpi=300,transparent=True,bbox_inches="tight")
+
     def cellprop(self,neut):
         colors = np.log10(neut.cell_nn)
 
@@ -1174,9 +1263,10 @@ class neutpyplot():
         ax1.set_ylabel(r'Z ($m$)',fontsize=30)
         ax1.set_xlabel(r'R ($m$)',fontsize=30)
         ax1.tick_params(labelsize=30)
-        fig.colorbar(cax)
-        plt.tight_layout()
-        fig.savefig("./figures/neutpy_nn.png", dpi=300,transparent=True)
+        cb = fig.colorbar(cax)
+        cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=30)
+        #fig.tight_layout()
+        fig.savefig("./figures/neutpy_nn.png", dpi=300,transparent=True,bbox_inches="tight")
         
 if __name__ == "__main__":
     ###############################################################################

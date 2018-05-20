@@ -424,7 +424,7 @@ class neutpy_prep():
             union = self.wall_line.union(self.cut(line,0.5)[1])    
             result = [geom for geom in polygonize(union)][0]
             self.wall_line = LineString(result.exterior.coords)
-
+        
     def pfr_lines(self):
         num_lines = int(len(cntr.Cntr(self.R,self.Z,self.psi_norm).trace(0.999))/2)
         if num_lines==1:
@@ -971,11 +971,11 @@ class neutpy_prep():
         self.Ti_kev_pts = np.vstack((self.Ti_kev_pts,pts_Ti_wall))
         self.Te_kev_pts = np.vstack((self.Te_kev_pts,pts_Te_wall))
         
-        plt.contourf(xi,r,np.log10(sol_ni),500)
-        plt.colorbar()
-        for i,v in enumerate(self.sol_lines_cut):
-            plt.plot(xi_pts,sol_line_dist[:,i])
-        plt.plot(np.linspace(0,1,num_wall_pts),wall_dist,color='black')
+        #plt.contourf(xi,r,np.log10(sol_ni),500)
+        #plt.colorbar()
+        #for i,v in enumerate(self.sol_lines_cut):
+        #    plt.plot(xi_pts,sol_line_dist[:,i])
+        #plt.plot(np.linspace(0,1,num_wall_pts),wall_dist,color='black')
 
     def pfr_nT(self):
         
@@ -1302,17 +1302,7 @@ class neutpy_prep():
             side1inline = self.isinline(side1_midpt[index],self.core_ring)
             side2inline = self.isinline(side2_midpt[index],self.core_ring)
             side3inline = self.isinline(side3_midpt[index],self.core_ring)
-            #TODO: wtf?
-            if index==417:
-                v1 = self.core_ring.project(Point(side1_midpt[index]),normalized=True)
-                v2 = self.core_ring.project(Point(side1_midpt[index]),normalized=True)
-                v3 = self.core_ring.project(Point(side1_midpt[index]),normalized=True)
-                
-                d1 = Point(side1_midpt[index]).distance(self.core_ring.interpolate(v1,normalized=True))
-                d2 = Point(side2_midpt[index]).distance(self.core_ring.interpolate(v2,normalized=True))
-                d3 = Point(side3_midpt[index]).distance(self.core_ring.interpolate(v3,normalized=True))
-                #print index,side1inline,side2inline,side3inline
-                #print d1,d2,d3
+
             if side1inline or side2inline or side3inline:
                 nb = (nei == -1).sum() #count number of times -1 occurs in nei
                 #print 'nb = ',nb
@@ -1359,6 +1349,10 @@ class neutpy_prep():
         wallcells = np.zeros((1,6))
         wcellnum = pcellnum #was already advanced in the plasmacell loop. Don't add 1.
         wcellcount = 0
+        
+        print np.asarray(self.wall_ring.xy).T
+        plt.scatter(np.asarray(self.wall_ring.xy).T[:,0],np.asarray(self.wall_ring.xy).T[:,1],marker='o',s=0.5,color='red')
+        
         for index, nei in enumerate(neighbors):
             #for each face of the cell, find the mid-point and check if it falls in line
             side1inline = self.isinline(side1_midpt[index],self.wall_ring)
@@ -1366,6 +1360,7 @@ class neutpy_prep():
             side3inline = self.isinline(side3_midpt[index],self.wall_ring)
             
             if side1inline or side2inline or side3inline:
+                print index,nei,side1inline,side2inline,side3inline
                 nb = (nei == -1).sum() #count number of times -1 occurs in nei
                 if nb == 1: #cell has one wall border
                     #identify the side that is the wall cell
@@ -1412,7 +1407,7 @@ class neutpy_prep():
                     wcellcount +=1
         wallcells = np.delete(wallcells,-1,0)
         wallcells = wallcells.astype('int')
-        
+        sys.exit()
         ## POPULATE CELL DENSITIES AND TEMPERATURES
         #create array of all points in plasma, sol, id, and od
         #tri_param = np.vstack((plasma_param,sol_param,id_param,od_param))
