@@ -55,7 +55,7 @@ class neutpy:
         self.calc_cell_quantities()
         print 'CALCULATING FACE QUANTITIES'
         self.calc_face_quantities()
-        print 'CALCULATING TCOEFS'
+        print 'CALCULATING TCOEFS USING '+self.int_method+' INTEGRATION METHOD'
         self.calc_tcoefs()
         print 'CREATING AND SOLVING MATRIX'
         self.solve_matrix()
@@ -635,17 +635,45 @@ class neutpy:
                         self.T_coef_t[i, j, k] = self.midpoint2D(f, phi_limits, xi_limits, nx, ny, **kwargs_t)
                         self.T_coef_s[i, j, k] = self.midpoint2D(f, phi_limits, xi_limits, nx, ny, **kwargs_s)
 
-                        print 'angles = ', angles
-                        print 'L_sides = ', L_sides
-                        for key, value in kwargs_t.iteritems():
-                            print key, value
-                        print 'self.T_coef_t[i, j, k] = ',self.T_coef_t[i, j, k]
-                        sys.exit()
+                        #print 'angles = ', angles
+                        #print 'L_sides = ', L_sides
+                        #for key, value in kwargs_t.iteritems():
+                        #    print key, value
+                        #print 'self.T_coef_t[i, j, k] = ',self.T_coef_t[i, j, k]
+                        #sys.exit()
 
                     elif self.int_method == 'quad':
 
-                        self.T_coef_t[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits], args=(x_comp, y_comp, reg, self.face_mfp_t[i, j]))[0]
-                        self.T_coef_s[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits], args=(x_comp, y_comp, reg, self.face_mfp_s[i, j]))[0]
+                        # self.T_coef_t[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits], args=(x_comp, y_comp, reg, self.face_mfp_t[i, j]))[0]
+                        # self.T_coef_s[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits], args=(x_comp, y_comp, reg, self.face_mfp_s[i, j]))[0]
+
+                        self.T_coef_s[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits],
+                                                                 args=(x_comp,
+                                                                       y_comp,
+                                                                       x_coords,
+                                                                       y_coords,
+                                                                       reg,
+                                                                       self.face_mfp_s[i, j],
+                                                                       adj_cells[0],
+                                                                       adj_cells[k-j],
+                                                                       i),
+                                                                 opts=dict([('epsabs', 1.49e-2),
+                                                                            ('epsrel', 10.00e-4),
+                                                                            ('limit', 2)]))[0]
+
+                        self.T_coef_t[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits],
+                                                                 args=(x_comp,
+                                                                       y_comp,
+                                                                       x_coords,
+                                                                       y_coords,
+                                                                       reg,
+                                                                       self.face_mfp_t[i, j],
+                                                                       adj_cells[0],
+                                                                       adj_cells[k-j],
+                                                                       i),
+                                                                 opts=dict([('epsabs', 1.49e-2),
+                                                                            ('epsrel', 10.00e-4),
+                                                                            ('limit', 2)]))[0]
 
                     trans_coef_file.write(('{:>6d}'*3+'{:>12.3E}'*4+'\n').format(int(self.T_from[i, j, k]),
                                                                                  int(self.T_to[i, j, k]),
@@ -999,31 +1027,31 @@ class neutpy:
                             sys.exit()
 
         # CREATE FINAL MATRIX AND SOLVE
-        if m_sparse==0 or m_sparse==2:
+        if m_sparse == 0 or m_sparse == 2:
             M_matrix = np.identity(M_size) - M_matrix
             flux_out = spsolve(M_matrix, source)
-        if m_sparse==1 or m_sparse==2:
+        if m_sparse == 1 or m_sparse == 2:
             # multiply m_data by -1 and append "identify matrix"
             # note: we're taking advantage of the way coo_matrix handles duplicate
             # entries to achieve the same thing as I - M
-            m_row  = np.concatenate(( np.asarray(m_row),  np.arange(0,M_size)))
-            m_col  = np.concatenate(( np.asarray(m_col),  np.arange(0,M_size)))
+            m_row = np.concatenate((np.asarray(m_row), np.arange(0, M_size)))
+            m_col = np.concatenate((np.asarray(m_col), np.arange(0, M_size)))
             m_data = np.concatenate((-np.asarray(m_data), np.ones(M_size)))
             m_sp_final = coo_matrix((m_data, (m_row, m_col))).tocsc()
-            flux_out = spsolve(m_sp_final,source)
+            flux_out = spsolve(m_sp_final, source)
 
         # np.savetxt(os.getcwd()+'/outputs/matrix.txt',M_matrix,fmt='%1.5f')
-        self.flux_out_s = np.zeros((self.nCells,4))
-        self.flux_out_t = np.zeros((self.nCells,4))
+        self.flux_out_s = np.zeros((self.nCells, 4))
+        self.flux_out_t = np.zeros((self.nCells, 4))
         flux_counter = 0
         for g,g1 in enumerate(range(num_en_groups)):
             for i,v1 in enumerate(range(self.nCells)):
                 for j,v2 in enumerate(range(self.nSides[i])):
                     if g==0:
-                        self.flux_out_s[i,j] = flux_out[flux_counter]
+                        self.flux_out_s[i, j] = flux_out[flux_counter]
                     if g==1:
-                        self.flux_out_t[i,j] = flux_out[flux_counter]
-                    flux_counter+=1
+                        self.flux_out_t[i, j] = flux_out[flux_counter]
+                    flux_counter += 1
         
         # flux_out_s = np.reshape(np.split(flux_out,num_en_groups)[0],(inp.nCells,-1))
         # flux_out_t = np.reshape(np.split(flux_out,num_en_groups)[1],(inp.nCells,-1))
@@ -1177,7 +1205,7 @@ class read_infile():
                         if result:
                             exec("self.%s = %s(result.group(1))"%(v,v0d[v][0]))
 
-        self.nCells_tot  = self.nCells + self.nPlasmReg + self.nWallSegm
+        self.nCells_tot = self.nCells + self.nPlasmReg + self.nWallSegm
 
         #now we can do the same thing for the 1d and 2d arrays
         v1d = {}
@@ -1237,124 +1265,8 @@ class read_infile():
                             exec("self.%s[int(result.group(1)),%s:] = -1"%(v,newvals.shape[0]))
         return        
 
-class neutpyplot():
-    
-    def __init__(self,neut=None):
-        print 'GENERATING NEUTPY PLOTS'
-        sys.setrecursionlimit(10000)
-        if neut==None: #then look for input file 'neutpy_in_generated'
-            neut = infile('neutpy_in_generated2')
-            self.cellmap(neut)
-        else:
-            self.cellmap(neut)
-        self.cellprop(neut)
 
-    def cellmap(self,neut):
-        
-        xcoords = np.zeros(neut.adjCell.shape)
-        ycoords = np.zeros(neut.adjCell.shape)
-        beta = np.zeros(neut.adjCell.shape) #beta is the angle of each side with respect to the +x axis. 
 
-        def loop(neut,oldcell,curcell,cellscomplete,xcoords,ycoords):
-            beta[curcell,:neut.nSides[curcell]] = np.cumsum(np.roll(neut.angles[curcell,:neut.nSides[curcell]],1)-180)+180
-            
-            #if first cell:
-            if oldcell==0 and curcell==0:
-                #rotate cell by theta0 value (specified)
-                beta[curcell,:neut.nSides[curcell]] = beta[curcell,:neut.nSides[curcell]] + neut.cell1_theta0
-                x_comp = np.cos(np.radians(beta[curcell,:neut.nSides[curcell]])) * neut.lsides[curcell,:neut.nSides[curcell]]
-                y_comp = np.sin(np.radians(beta[curcell,:neut.nSides[curcell]])) * neut.lsides[curcell,:neut.nSides[curcell]]        
-                xcoords[curcell,:neut.nSides[curcell]] = np.roll(np.cumsum(x_comp),1) + neut.cell1_ctr_x
-                ycoords[curcell,:neut.nSides[curcell]] = np.roll(np.cumsum(y_comp),1) + neut.cell1_ctr_x
-                
-            #for all other cells:
-            else:
-
-                #adjust all values in beta for current cell such that the side shared
-                #with oldcell has the same beta as the oldcell side
-                oldcell_beta = beta[oldcell,:][np.where(neut.adjCell[oldcell,:]==curcell)][0]
-                delta_beta = beta[curcell,np.where(neut.adjCell[curcell,:]==oldcell)]+180 - oldcell_beta
-                beta[curcell,:neut.nSides[curcell]] = beta[curcell,:neut.nSides[curcell]]-delta_beta
-
-                #calculate non-shifted x- and y- coordinates
-                x_comp = np.cos(np.radians(beta[curcell,:neut.nSides[curcell]])) * neut.lsides[curcell,:neut.nSides[curcell]]
-                y_comp = np.sin(np.radians(beta[curcell,:neut.nSides[curcell]])) * neut.lsides[curcell,:neut.nSides[curcell]]      
-                xcoords[curcell,:neut.nSides[curcell]] = np.roll(np.cumsum(x_comp),1)  #xcoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-                ycoords[curcell,:neut.nSides[curcell]] = np.roll(np.cumsum(y_comp),1)  #ycoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-
-                cur_in_old = np.where(neut.adjCell[oldcell,:]==curcell)[0][0]
-                old_in_cur = np.where(neut.adjCell[curcell,:]==oldcell)[0][0]
-                mdpt_old_x = (xcoords[oldcell,cur_in_old] + np.roll(xcoords[oldcell,:],-1)[cur_in_old])/2
-                mdpt_old_y = (ycoords[oldcell,cur_in_old] + np.roll(ycoords[oldcell,:],-1)[cur_in_old])/2
-                mdpt_cur_x = (xcoords[curcell,old_in_cur] + np.roll(xcoords[curcell,:],-1)[old_in_cur])/2
-                mdpt_cur_y = (ycoords[curcell,old_in_cur] + np.roll(ycoords[curcell,:],-1)[old_in_cur])/2
-
-                xshift = mdpt_old_x - mdpt_cur_x
-                yshift = mdpt_old_y - mdpt_cur_y
-  
-                xcoords[curcell,:] = xcoords[curcell,:] + xshift #xcoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-                ycoords[curcell,:] = ycoords[curcell,:] + yshift #ycoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-
-            #continue looping through adjacent cells
-            for j,newcell in enumerate(neut.adjCell[curcell,:neut.nSides[curcell]]):
-                #if the cell under consideration is a normal cell (>3 sides) and not complete, then move into that cell and continue
-                if neut.nSides[newcell]>=3 and cellscomplete[newcell]==0:
-                    cellscomplete[newcell]=1
-                    loop(neut,curcell,newcell,cellscomplete,xcoords,ycoords)
-            
-            return xcoords,ycoords
-        
-        ## Add initial cell to the list of cells that are complete
-        cellscomplete = np.zeros(neut.nCells)
-        cellscomplete[0] = 1
-        self.xs,self.ys = loop(neut,0,0,cellscomplete,xcoords,ycoords)
-        
-        #plot cell diagram
-        #grid = plt.figure(figsize=(160,240))
-        grid = plt.figure(figsize=(8,12))
-        ax1 = grid.add_subplot(111)
-        ax1.set_title('Neutrals Mesh',fontsize=30)
-        ax1.set_ylabel(r'Z ($m$)',fontsize=30)
-        ax1.set_xlabel(r'R ($m$)',fontsize=30)
-        ax1.tick_params(labelsize=15)
-        ax1.axis('equal')
-        for i,(v1,v2) in enumerate(zip(self.xs,self.ys)):
-            if neut.nSides[i]==len(v1):
-                v1 = np.append(v1,v1[0])
-                v2 = np.append(v2,v2[0])
-            elif neut.nSides[i]==3 and len(v1)==4:
-                v1[3] = v1[0]
-            #elif neut.nSides[i]==3 and len(v1)==3:
-            #    v1 = np.append(v1,v1[0])
-            #    v2 = np.append(v2,v2[0])
-            ax1.plot(v1,v2,color='black',lw=1)  
-        #fig.tight_layout()
-        grid.savefig("./figures/neutpy_mesh.png", dpi=300,transparent=True,bbox_inches="tight")
-
-    def cellprop(self,neut):
-        colors = np.log10(neut.cell_nn)
-
-        patches = []
-        for i in range(0,neut.nCells):
-            verts = np.column_stack((self.xs[i,:neut.nSides[i]],self.ys[i,:neut.nSides[i]]))
-            polygon = Polygon(verts,closed=True)
-            patches.append(polygon)
-
-        collection1 = PatchCollection(patches,cmap='viridis')
-        collection1.set_array(np.array(colors))
-
-        fig, ax1 = plt.subplots(figsize=(8, 12))
-        cax = ax1.add_collection(collection1)
-        ax1.axis('equal')
-        ax1.set_title('Calculated Neutral Densities',fontsize=30)
-        ax1.set_ylabel(r'Z ($m$)',fontsize=30)
-        ax1.set_xlabel(r'R ($m$)',fontsize=30)
-        ax1.tick_params(labelsize=30)
-        cb = fig.colorbar(cax)
-        cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=30)
-        #fig.tight_layout()
-        fig.savefig("./figures/neutpy_nn.png", dpi=300,transparent=True,bbox_inches="tight")
-        
 if __name__ == "__main__":
     ###############################################################################
     # CREATE NEUTPY INSTANCE (READS INPUT FILE, INSTANTIATES SOME FUNCTIONS)
