@@ -544,7 +544,7 @@ def calc_ext_src(face_adj, src):
     return face_ext_src
 
 
-class neutpy2:
+class neutpy:
     
     def __init__(self, infile=None, inarrs=None):
         print 'BEGINNING NEUTPY'
@@ -710,7 +710,7 @@ class neutpy2:
         face = namedtuple('face', face_dict.keys())(*face_dict.values())
 
         # compute transmission coefficients
-        self.T_coef = self.calc_tcoefs(face, 'quad')
+        self.T_coef = self.calc_tcoefs(face, int_method='quad')
 
         # construct and solve the matrix to obtain the fluxes
         self.flux = self.solve_matrix(face, cell, self.T_coef)
@@ -719,7 +719,7 @@ class neutpy2:
         self.izn_rate, self.nn = self.calc_neutral_dens(cell, face, self.T_coef, self.flux)
 
         # write neutpy output files
-        self.write_outputs(cell)
+        #self.write_outputs(cell)
 
     def calc_cell_geom(self):
         cell_area = np.zeros(self.nCells)
@@ -790,7 +790,6 @@ class neutpy2:
         return face_adj
 
     def calc_tcoefs(self, face, int_method='quad'):
-
         # create bickley-naylor fit (much faster than evaluating Ki3 over and over)
         Ki3_x = np.linspace(0, 100, 200)
         Ki3 = np.zeros(Ki3_x.shape)
@@ -925,6 +924,9 @@ class neutpy2:
                         T_coef_s[i, j, k] = midpoint2D(f, phi_limits, xi_limits, nx, ny, **kwargs_s)
 
                     elif int_method == 'quad':
+                        #T_coef_s[i, j, k] = 0
+                        #T_coef_t[i, j, k] = 0
+
                         T_coef_s[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits],
                                                             args=(x_comp,
                                                                   y_comp,
@@ -1400,8 +1402,8 @@ class neutpy2:
                     flux_inc_s[i, k] = flux_inc_s[i, k] + face.s_ext[i, k]
                 if face.adj.int_type[i, k] == 2:
                     flux_inc_s[i, k] = flux_out_s[i, k] * (
-                                face.refl.n.s[i, k] + (1.0 - face.refl.n.s[i, k]) * (1 - face.f_abs[i, k])) + \
-                                      flux_out_t[i, k] * (1.0 - face.refl.n.t[i, k]) * (1 - face.f_abs[i, k])
+                            face.refl.n.s[i, k] + (1.0 - face.refl.n.s[i, k]) * (1 - face.f_abs[i, k])) + \
+                                       flux_out_t[i, k] * (1.0 - face.refl.n.t[i, k]) * (1 - face.f_abs[i, k])
                     flux_inc_t[i, k] = flux_out_t[i, k] * face.refl.n.t[i, k]
                     flux_inc_s[i, k] = flux_inc_s[i, k] + face.s_ext[i, k]
 
@@ -1486,18 +1488,6 @@ class neutpy2:
         # print 'Particle balance failed. {}% relative error.'.format(relerr*100)
         # for i, (v1, v2) in enumerate(zip(flux_in_tot, flux_out_tot)):
         # print i, np.sum(v1), np.sum(v2)+cell_izn_rate[i]
-                
-    def write_outputs(self, cell):
-        # create a pandas database of all cell quantities and output to csv
-        df = pd.DataFrame()
-        cell_df = iterate_namedtuple(cell, df)
-        cell_df.to_csv(os.getcwd() + '/outputs/neutpy_cell_values.txt')
-
-        #cell_vals_file = open(os.getcwd()+'/outputs/neutpy_cell_values.txt', 'w')
-        #cell_vals_file.write(('{:^{width}s}'*20+'\n').format("cell_area", "cell_perimeter", "cell_ni", "cell_ne", "cell_nn", "cell_mfp_s", "cell_mfp_t", "cell_sv_ion", "cell_sv_rec", "cell_sv_cx_s", "cell_sv_el_s", "cell_sv_eln_s", "cell_sv_cx_t", "cell_sv_el_t", "cell_sv_eln_t", "cell_izn_rate", "c_i_t", "X_i_t", "P_0i_t", "P_i_t", width=15))
-        #for i, (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, v19, v20) in enumerate(zip(cell_area, cell_perim, cell_ni, cell_ne, cell_nn, cell_mfp_s, cell_mfp_t, cell_sv_ion, cell_sv_rec, cell_sv_cx_s, cell_sv_el_s, cell_sv_eln_s, cell_sv_cx_t, cell_sv_el_t, cell_sv_eln_t, cell_izn_rate, c_i_t, X_i_t, P_0i_t, P_i_t)):
-        #    cell_vals_file.write(('{:>{width}.3E}'*20+'\n').format(v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, v19, v20, width=15))
-        #cell_vals_file.close()
         
 class read_infile():
     def __init__(self, infile):

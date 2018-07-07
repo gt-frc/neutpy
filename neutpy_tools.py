@@ -7,7 +7,29 @@ from matplotlib.collections import PatchCollection
 import sys
 from math import pi
 import os
+import pandas as pd
 
+def isnamedtupleinstance(x):
+    t = type(x)
+    b = t.__bases__
+    if len(b) != 1 or b[0] != tuple:
+        return False
+    f = getattr(t, '_fields', None)
+    if not isinstance(f, tuple):
+        return False
+    return all(type(n) == str for n in f)
+
+
+def iterate_namedtuple(object, df):
+    if isnamedtupleinstance(object):
+        for key, item in object._asdict().iteritems():
+            if isnamedtupleinstance(item):
+                iterate_namedtuple(item, df)
+            else:
+                df[key] = pd.Series(item.flatten(), name=key)
+    else:
+        pass
+    return df
 
 class NeutpyTools:
 
@@ -20,6 +42,9 @@ class NeutpyTools:
         self.n_n_slow = neut.nn.s
         self.n_n_thermal = neut.nn.t
         self.n_n_total = neut.nn.tot
+        self.izn_rate_slow = neut.izn_rate.s
+        self.izn_rate_thermal = neut.izn_rate.t
+        self.izn_rate_total = neut.izn_rate.tot
         self.flux_in_s = neut.flux.inc.s
         self.flux_in_t = neut.flux.inc.t
         self.flux_in_tot = self.flux_in_s + self.flux_in_t
@@ -28,6 +53,7 @@ class NeutpyTools:
         self.flux_out_tot = self.flux_out_s + self.flux_out_t
 
         self.create_flux_outfile()
+        self.create_cell_outfile()
 
         flux_s_xcomp, flux_s_ycomp, flux_s_mag = self.calc_flow('slow', norm=True)
         flux_t_xcomp, flux_t_ycomp, flux_t_mag = self.calc_flow('thermal', norm=True)
@@ -79,6 +105,19 @@ class NeutpyTools:
                 self.flux_in_t[i, 2]))
         f.close()
 
+    def create_cell_outfile(self):
+        df = pd.DataFrame()
+        df['R'] = pd.Series(np.mean(self.xs, axis=1), name='R')
+        df['Z'] = pd.Series(np.mean(self.ys, axis=1), name='Z')
+        df['n_n_slow'] = pd.Series(self.n_n_slow, name='n_n_slow')
+        df['n_n_thermal'] = pd.Series(self.n_n_thermal, name='n_n_thermal')
+        df['n_n_total'] = pd.Series(self.n_n_total, name='n_n_total')
+        df['izn_rate_slow'] = pd.Series(self.izn_rate_slow, name='izn_rate_slow')
+        df['izn_rate_thermal'] = pd.Series(self.izn_rate_thermal, name='izn_rate_thermal')
+        df['izn_rate_total'] = pd.Series(self.izn_rate_thermal, name='izn_rate_total')
+        #cell_df = iterate_namedtuple(neut.cell, df)
+        df.to_csv(os.getcwd() + '/outputs/neutpy_cell_values.txt')
+
     @staticmethod
     def calc_cell_pts(neut):
         sys.setrecursionlimit(100000)
@@ -96,7 +135,7 @@ class NeutpyTools:
                 y_comp = np.sin(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
                                                                                     :neut.nSides[curcell]]
                 xcoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(x_comp), 1) + neut.cell1_ctr_x
-                ycoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(y_comp), 1) + neut.cell1_ctr_x
+                ycoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(y_comp), 1) + neut.cell1_ctr_y
 
             # for all other cells:
             else:
