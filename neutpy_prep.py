@@ -7,18 +7,24 @@
 from __future__ import division
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib._cntr as cntr
+from skimage import measure
+#import matplotlib._cntr as cntr
+
+from matplotlib.pyplot import contour as cntr
+import legacycontour as legacycntr
 from scipy.interpolate import griddata, UnivariateSpline
 from scipy.constants import elementary_charge
 from shapely.geometry import Point, LineString, LinearRing
 from shapely.ops import polygonize, linemerge
 from math import degrees, sqrt, acos, pi
-from neutpy import neutpy, neutpyplot
+from neutpy import neutpy
 import sys
 import os
 import re
 from subprocess import call
 import time
+
+
 
 class neutpy_prep():
     def __init__(self, infile):
@@ -95,9 +101,10 @@ class neutpy_prep():
 
     @staticmethod
     def draw_line(R, Z, array, val, pathnum):
-        res = cntr.Cntr(R, Z, array).trace(val)[pathnum]
-        x = res[:, 0]
-        y = res[:, 1]
+        res=plt.contour(R, Z, array, [val]).collections[0].get_paths()[pathnum]
+        #res = cntr.contour(R, Z, array).trace(val)[pathnum]
+        x = res.vertices[:, 0]
+        y = res.vertices[:, 1]
         return x, y
         
     def read_infile(self, infile):
@@ -210,15 +217,21 @@ class neutpy_prep():
         d2psidZ2 = np.gradient(dpsidZ, self.Z[:, 0], axis=0)
         
         # find line(s) where dpsidR=0
-        self.dpsidR_0 = cntr.Cntr(self.R, self.Z, dpsidR).trace(0.0)
+        csR = plt.contour(self.R, self.Z, dpsidR, [0])
+        csZ = plt.contour(self.R, self.Z, dpsidZ, [0])
+
+        self.dpsidR_0 = csR.collections[0].get_paths()
+        #self.dpsidR_0 = cntr.contour(self.R, self.Z, dpsidR).trace(0.0)
+
         # find line(s) where dpsidZ=0
-        self.dpsidZ_0 = cntr.Cntr(self.R, self.Z, dpsidZ).trace(0.0)
+        #self.dpsidZ_0 = cntr.contour(self.R, self.Z, dpsidZ).trace(0.0)
+        self.dpsidZ_0 = csZ.collections[0].get_paths()
     
         for i, path1 in enumerate(self.dpsidR_0):
             for j, path2 in enumerate(self.dpsidZ_0):
                 try:
                     # find intersection points between curves for dpsidR=0 and dpsidZ=0
-                    ints = LineString(path1).intersection(LineString(path2))
+                    ints = LineString(path1.vertices).intersection(LineString(path2.vertices))
                     # if there is only one intersection ('Point'), then we're probably not
                     # dealing with irrelevant noise in psi
                     if ints.type=='Point':
@@ -259,7 +272,10 @@ class neutpy_prep():
         self.psi_norm = psi_shift / psi_shift_xpt
         
         # create lines for seperatrix and divertor legs of seperatrix
-        num_lines = int(len(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(1.0))/2)
+        plt.figure()
+        plt.contour(self.R, self.Z, self.psi_norm, [1])
+
+        num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [1]).collections[0].get_paths()))
         if num_lines==1:
             # in this case, the contour points that matplotlib returned constitute
             # a single line from inboard divertor to outboard divertor. We need to
@@ -354,15 +370,17 @@ class neutpy_prep():
         # psi_pts = np.concatenate((np.linspace(0, 0.8, 5, endpoint=False), np.linspace(0.8, 1.0, 4, endpoint=False)))
         psi_pts = np.linspace(self.corelines_begin, 1, self.num_corelines, endpoint=False)
         for i, v in enumerate(psi_pts):
-            num_lines = int(len(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(v))/2)
+            num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()))
+            # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(v))/2)
             if num_lines==1:
                 # then we're definitely dealing with a surface inside the seperatrix
                 x, y = self.draw_line(self.R, self.Z, self.psi_norm, v, 0)
                 self.core_lines.append(LineString(np.column_stack((x[:-1], y[:-1]))))
             else:
                 # we need to find which of the surfaces is inside the seperatrix
-                for j, line in enumerate(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(v)[:num_lines]):
-                # for j, line in enumerate(cntr.Cntr(R, Z, self.psi_norm).trace(v)):
+                for j, line in enumerate(plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()[:num_lines]):
+                # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(v)[:num_lines]):
+                # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
                     x, y = self.draw_line(self.R, self.Z, self.psi_norm, v, j)
                     if (np.amax(x) < np.amax(self.main_sep_pts[:, 0]) and \
                         np.amin(x) > np.amin(self.main_sep_pts[:, 0]) and \
@@ -380,7 +398,7 @@ class neutpy_prep():
         sol_width_obmp = 0.02
         psi_pts = np.linspace(1, self.sollines_psi_max, self.num_sollines+1, endpoint=True)[1:]
         for i, v in enumerate(psi_pts):
-            num_lines = int(len(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(v))/2)
+            num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()))
             if num_lines==1:
                 # then we're definitely dealing with a surface inside the seperatrix
                 x, y = self.draw_line(self.R, self.Z, self.psi_norm, v, 0)
@@ -425,15 +443,17 @@ class neutpy_prep():
             self.wall_line = LineString(result.exterior.coords)
         
     def pfr_lines(self):
-        num_lines = int(len(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(0.999))/2)
+        num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [.999]).collections[0].get_paths()))
+        #num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.999))/2)
         if num_lines==1:
             # then we're definitely dealing with a surface inside the seperatrix
             print 'Did not find PFR flux surface. Stopping.'
             sys.exit()
         else:
             # we need to find the surface that is contained within the private flux region
-            for j, line in enumerate(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(0.99)[:num_lines]):
-            # for j, line in enumerate(cntr.Cntr(R, Z, self.psi_norm).trace(v)):
+            for j, line in enumerate(plt.contour(self.R, self.Z, self.psi_norm, [.99]).collections[0].get_paths()[:num_lines]):
+            #for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.99)[:num_lines]):
+            # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
                 x, y = self.draw_line(self.R, self.Z, self.psi_norm, 0.99, j)
                 if (np.amax(y) < np.amin(self.main_sep_pts[:, 1])):
                     # then it's a pfr flux surface, might need to add additional checks later
@@ -532,7 +552,8 @@ class neutpy_prep():
                                  pt_coords, 
                                  method='linear')
             # map this n, T data to every point on the corresponding flux surface
-            num_lines = int(len(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(psi_val))/2)
+            num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()))
+            #num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val))/2)
 
             if num_lines==1:
                 # then we're definitely dealing with a surface inside the seperatrix
@@ -540,8 +561,9 @@ class neutpy_prep():
                 surf = LineString(np.column_stack((x, y)))
             else:
                 # we need to find which of the surfaces is inside the seperatrix
-                for j, line in enumerate(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
-                    # for j, line in enumerate(cntr.Cntr(R, Z, self.psi_norm).trace(v)):
+                for j, line in enumerate(plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()[:num_lines]):
+                #for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
+                    # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
                     x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
                     if (np.amax(x) < np.amax(self.main_sep_pts[:, 0]) and \
                         np.amin(x) > np.amin(self.main_sep_pts[:, 0]) and \
@@ -578,14 +600,16 @@ class neutpy_prep():
 
         # draw core line just inside the seperatrix (seperatrix would be too noisy absent SOL data, which is what we're trying to calculate)
         psi_val = 0.98
-        num_lines = int(len(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(psi_val))/2)
+        num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()))
+        #num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val))/2)
         if num_lines==1:
             # then we're definitely dealing with a surface inside the seperatrix
             x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, 0)
         else:
             # we need to find which of the surfaces is inside the seperatrix
-            for j, line in enumerate(cntr.Cntr(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
-            # for j, line in enumerate(cntr.Cntr(R, Z, self.psi_norm).trace(v)):
+            for j, line in enumerate(plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()[:num_lines]):
+            #for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
+            # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
                 x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
                 if (np.amax(x) < np.amax(self.main_sep_pts[:, 0]) and \
                     np.amin(x) > np.amin(self.main_sep_pts[:, 0]) and \
@@ -1554,7 +1578,7 @@ class neutpy_prep():
         time1 = time.time()
         minutes, seconds = divmod(time1-time0, 60)
         print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
-        plot = neutpyplot(self.neutpy_inst)
+        #plot = neutpyplot(self.neutpy_inst)
         self.nn_s_raw = self.neutpy_inst.cell_nn_s
         self.nn_t_raw = self.neutpy_inst.cell_nn_t
         self.nn_raw = self.nn_s_raw + self.nn_t_raw

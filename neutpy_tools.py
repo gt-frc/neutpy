@@ -2,7 +2,7 @@ from __future__ import division
 import numpy as np
 from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Wedge, Polygon
+from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
 import sys
 from math import pi

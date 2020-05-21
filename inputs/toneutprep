@@ -26,11 +26,11 @@ num_corelines = 10
 sollines_psi_max = 1.07
 num_sollines = 6
 
-xi_sep_pts = 50
+xi_sep_pts = 25
 ib_trim_off = 0.1
 ob_trim_off = 0.1
 
-xi_ib_pts = 10
+xi_ib_pts = 5
 xi_ob_pts = 10
 
 core_pol_pts = 30
