@@ -5,11 +5,16 @@
 The neutpy module contains three classes: neutpy, read_infile, and neutpyplot.
 
 """
+
 from __future__ import division
+import time as time
 import sys
 import os
+from functools import partial
 from math import sqrt, pi, sin, tan, exp
+from coeff_calc import coeff_calc
 import numpy as np
+from pathos.multiprocessing import ProcessPool as Pool
 from scipy.interpolate import interp1d
 from scipy import integrate
 from scipy.constants import m_p
@@ -866,124 +871,44 @@ class neutpy:
         trans_coef_file.write(('{:^6s}'*3+'{:^12s}'*4+'\n').format("from", "to", "via", "T_slow", "T_thermal", "mfp_s", "mfp_t"))
         outof = np.sum(self.nSides[:self.nCells]**2)
 
-        for (i, j, k), val in np.ndenumerate(T_coef_s):
+        start_time = time.time()
+        print "Start time: %s" % start_time
+        pool = Pool(3)
+        cord_list = list(np.ndenumerate(T_coef_s))
+        #for (i, j, k), val in np.ndenumerate(T_coef_s):
+            # nSides, adjCell, lsides, T_from, T_to, T_via, int_method, T_coef_s, T_coef_t, midpoint2D, face_mfp_t, face_mfp_s, print_progress, outof, selfAngles
+        kwargs = {'nSides': self.nSides,
+                  'adjCell': self.adjCell,
+                  'lsides': self.lsides,
+                  'T_from': T_from,
+                  'T_to': T_to,
+                  'T_via': T_via,
+                  'int_method': int_method,
+                  'T_coef_s' : T_coef_s,
+                  'T_coef_t' : T_coef_t,
+                  'midpoint2D' : midpoint2D,
+                  'face_mfp_t' : face.mfp.t,
+                  'face_mfp_s' : face.mfp.s,
+                  'print_progress': print_progress,
+                  'outof' : outof,
+                  'angles': self.angles,
+                  'Ki3_fit': Ki3_fit,
+                  'li': li,
+        }
 
-            progress = self.nSides[i]**2 * i  # + self.nSides[i]*j + k
+        pool.map(partial(coeff_calc, **kwargs), cord_list)
 
-            L_sides = np.roll(self.lsides[i, :self.nSides[i]], -(j+1))  # begins with length of the current "from" side
-            adj_cells = np.roll(self.adjCell[i, :self.nSides[i]], -j)
-            angles = np.roll(self.angles[i, :self.nSides[i]], -j)*2*pi/360  # converted to radians
-            angles[1:] = 2*pi-(pi-angles[1:])
+        # pool.map(coeff_calc, cord_list, nSides = self.nSides, adjCell = self.adjCell,
+        #          lsides = self.lsides, T_from = T_from, T_to = T_to, T_via = T_via, int_method = int_method,
+        #          T_coef_s = T_coef_s, T_coef_t = T_coef_t, midpoint2D = midpoint2D, face_mfp_t = face.mfp.t,
+        #          face_mfp_s = face.mfp.s, print_progress = print_progress, outof = outof, angles = self.angles)
 
-            if k < adj_cells.size and j < adj_cells.size:
 
-                T_from[i, j, k] = adj_cells[0]
-                T_to[i, j, k] = adj_cells[k-j]
-                T_via[i, j, k] = i
-                if j == k:
-                    # All flux from a side back through itself must have at least one collision
-                    T_coef_s[i, j, k] = 0.0
-                    T_coef_t[i, j, k] = 0.0
-                    trans_coef_file.write(('{:>6d}'*3+'{:>12.3E}'*4+'\n').format(int(T_from[i, j, k]), int(T_to[i, j, k]), int(T_via[i, j, k]), T_coef_s[i, j, k], T_coef_t[i, j, k], face.mfp.s[i, k], face.mfp.t[i, k]))
-                else:
-                    side_thetas = np.cumsum(angles)
 
-                    x_comp = np.cos(side_thetas) * L_sides
-                    y_comp = np.sin(side_thetas) * L_sides
-
-                    y_coords = np.roll(np.flipud(np.cumsum(y_comp)), -1)
-                    x_coords = np.roll(np.flipud(np.cumsum(x_comp)), -1)  # this gets adjusted for xi later, as part of the integration process
-
-                    reg = np.where(np.flipud(adj_cells[1:]) == T_to[i, j, k])[0][0]
-
-                    if int_method == 'midpoint':
-
-                        kwargs_s = {"x_comp": x_comp,
-                                    "y_comp": y_comp,
-                                    "x_coords": x_coords,
-                                    "y_coords": y_coords,
-                                    "reg": reg,
-                                    "mfp": face.mfp.s[i, j], # not sure if this is j or k
-                                    "fromcell": adj_cells[0],
-                                    "tocell": adj_cells[k-j],
-                                    "throughcell": i}
-
-                        kwargs_t = {"x_comp": x_comp,
-                                    "y_comp": y_comp,
-                                    "x_coords": x_coords,
-                                    "y_coords": y_coords,
-                                    "reg": reg,
-                                    "mfp": face.mfp.t[i, j],
-                                    "fromcell": adj_cells[0],
-                                    "tocell": adj_cells[k-j],
-                                    "throughcell": i}
-                        nx = 10
-                        ny = 10
-
-                        T_coef_t[i, j, k] = midpoint2D(f, phi_limits, xi_limits, nx, ny, **kwargs_t)
-                        T_coef_s[i, j, k] = midpoint2D(f, phi_limits, xi_limits, nx, ny, **kwargs_s)
-
-                    elif int_method == 'quad':
-                        #T_coef_s[i, j, k] = 0
-                        #T_coef_t[i, j, k] = 0
-
-                        T_coef_s[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits],
-                                                            args=(x_comp,
-                                                                  y_comp,
-                                                                  x_coords,
-                                                                  y_coords,
-                                                                  reg,
-                                                                  face.mfp.s[i, j],
-                                                                  adj_cells[0],
-                                                                  adj_cells[k-j],
-                                                                  i),
-                                                            opts=dict([('epsabs', 1.49e-2),
-                                                                       ('epsrel', 10.00e-4),
-                                                                       ('limit', 2)]))[0]
-
-                        T_coef_t[i, j, k] = integrate.nquad(f, [phi_limits, xi_limits],
-                                                            args=(x_comp,
-                                                                  y_comp,
-                                                                  x_coords,
-                                                                  y_coords,
-                                                                  reg,
-                                                                  face.mfp.t[i, j],
-                                                                  adj_cells[0],
-                                                                  adj_cells[k-j],
-                                                                  i),
-                                                            opts=dict([('epsabs', 1.49e-2),
-                                                                       ('epsrel', 10.00e-4),
-                                                                       ('limit', 2)]))[0]
-                    #stop if nan is detected
-                    if np.isnan(T_coef_t[i, j, k]) or np.isnan(T_coef_s[i, j, k]):
-                        print 'T_coef = nan detected'
-                        print 'i, j, k = ',i,j,k
-                        print ('T_coef_t[i, j, k] = ', (T_coef_t[i, j, k]))
-                        print ('T_coef_s[i, j, k] = ', (T_coef_s[i, j, k]))
-                        print
-                        print 'x_comp = ',x_comp
-                        print 'y_comp = ',y_comp
-                        print 'x_coords = ',x_coords
-                        print 'y_coords = ',y_coords
-                        print 'reg = ',reg
-                        print 'face.mfp.t[i, j] = ',face.mfp.t[i, j]
-                        print 'adj_cells[0] = ',adj_cells[0]
-                        print 'adj_cells[k-j] = ',adj_cells[k-j]
-                        sys.exit()
-                    else:
-                        pass
-
-                    trans_coef_file.write(('{:>6d}'*3+'{:>12.3E}'*4+'\n').format(int(T_from[i, j, k]),
-                                                                                 int(T_to[i, j, k]),
-                                                                                 int(T_via[i, j, k]),
-                                                                                 T_coef_s[i, j, k],
-                                                                                 T_coef_t[i, j, k],
-                                                                                 face.mfp.s[i, j],
-                                                                                 face.mfp.t[i, j]))
-
-            print_progress(progress, outof)
         print '\n'
         trans_coef_file.close()
+        end_time = time.time()
+        print "Total: %s" % (end_time - start_time)
 
         # create t_coef_sum arrays for use later
         tcoef_sum_s = np.zeros((self.nCells, 4))
