@@ -23,6 +23,7 @@ from scipy.sparse import coo_matrix
 from neutpy_xsec import calc_xsec
 from collections import namedtuple
 import pandas as pd
+import warnings
 
 # instantiate cross sections class
 sv = calc_xsec()
@@ -551,7 +552,7 @@ def calc_ext_src(face_adj, src):
 
 class neutpy:
     
-    def __init__(self, infile=None, inarrs=None):
+    def __init__(self, infile=None, inarrs=None, verbose=False):
         print 'BEGINNING NEUTPY'
         
         sys.dont_write_bytecode = True 
@@ -559,7 +560,7 @@ class neutpy:
             os.makedirs(os.getcwd()+'/outputs')
         if not os.path.exists(os.getcwd()+'/figures'):
             os.makedirs(os.getcwd()+'/figures')
-            
+
         # EITHER READ INPUT FILE OR ACCEPT ARRAYS FROM ANOTHER PROGRAM
         if infile == None and inarrs == None:
             # should look for default input file like neutpy_in.txt or something
@@ -575,6 +576,8 @@ class neutpy:
             print 'You\'ve specified both an input file and passed arrays directly. ' \
                   'Please remove one of the inputs and try again.'
             sys.exit()
+
+        self.verbose = verbose
 
         # initialize cell densities
         cell_n_dict = {}
@@ -896,16 +899,34 @@ class neutpy:
                   'li': li,
         }
 
-        pool.map(partial(coeff_calc, **kwargs), cord_list)
+        result = pool.map(partial(coeff_calc, **kwargs), cord_list)
+        #result = [(0, 0, 0, 0, 0)] * (self.nCells * 4 * 4)
 
-        # pool.map(coeff_calc, cord_list, nSides = self.nSides, adjCell = self.adjCell,
-        #          lsides = self.lsides, T_from = T_from, T_to = T_to, T_via = T_via, int_method = int_method,
-        #          T_coef_s = T_coef_s, T_coef_t = T_coef_t, midpoint2D = midpoint2D, face_mfp_t = face.mfp.t,
-        #          face_mfp_s = face.mfp.s, print_progress = print_progress, outof = outof, angles = self.angles)
+        for (i, j, k, s, t, f, to, via) in result:
+            T_from[i, j, k] = f
+            T_to[i, j, k]  = to
+            T_via[i, j, k]  = via
+            T_coef_s[i, j, k] = s
+            T_coef_t[i, j, k] = t
 
+        for (i, j, k), val in np.ndenumerate(T_coef_s):
+            adj_cells = np.roll(self.adjCell[i, :self.nSides[i]], -j)
+            if k < adj_cells.size and j < adj_cells.size:
+                if j == k:
+                    trans_coef_file.write(
+                        ('{:>6d}' * 3 + '{:>12.3E}' * 4 + '\n').format(int(T_from[i, j, k]), int(T_to[i, j, k]),
+                                                                       int(T_via[i, j, k]), T_coef_s[i, j, k],
+                                                                       T_coef_t[i, j, k], face.mfp.s[i, k],
+                                                                       face.mfp.t[i, k]))
+                else:
+                    trans_coef_file.write(('{:>6d}' * 3 + '{:>12.3E}' * 4 + '\n').format(int(T_from[i, j, k]),
+                                            int(T_to[i, j, k]),
+                                            int(T_via[i, j, k]),
+                                            T_coef_s[i, j, k],
+                                            T_coef_t[i, j, k],
+                                            face.mfp.s[i, j],
+                                            face.mfp.t[i, j]))
 
-
-        print '\n'
         trans_coef_file.close()
         end_time = time.time()
         print "Total: %s" % (end_time - start_time)
@@ -929,6 +950,17 @@ class neutpy:
         T_coef = namedtuple('T_coef', T_coef_dict.keys())(*T_coef_dict.values())
 
         return T_coef
+
+    def listToFloatChecker(self, val, message):
+        if type(val) == np.ndarray:
+            if len(val) > 1:
+                raise ValueError(message)
+            else:
+                if self.verbose: warnings.warn("List value of len 1 found")
+                return val[0]
+        else:
+            return val
+
 
     def solve_matrix(self, face, cell, T_coef):
         # calculate size of matrix and initialize
@@ -1013,22 +1045,26 @@ class neutpy:
                             # matrix: from slow group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_s)
-                            m_data.append(uncoll_ss + coll_ss)
+                            m_data.append(self.listToFloatChecker(uncoll_ss + coll_ss,
+                                          "Multi-dimensional m_data entry for uncoll_ss + coll_ss at row_s %s, col_s %s" % (M_row_s, M_col_s)))
                             
                             # matrix: from thermal group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_t)
-                            m_data.append(coll_ts)
+                            m_data.append(self.listToFloatChecker(coll_ts,
+                                          "Multi-dimensional m_data entry for coll_ts at row_s %s, col_t %s" % (M_row_s, M_col_t)))
                             
                             # matrix: from slow group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_s)
-                            m_data.append(coll_st)
+                            m_data.append(self.listToFloatChecker(coll_st,
+                                          "Multi-dimensional m_data entry for coll_st at row_t %s, col_s %s" % (M_row_t, M_col_s)))
                             
                             # matrix: from thermal group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_t)
-                            m_data.append(uncoll_tt + coll_tt)
+                            m_data.append(self.listToFloatChecker(uncoll_tt + coll_tt,
+                                           "Multi-dimensional m_data entry for uncoll_tt + coll_tt at row_t %s, col_t %s" % (M_row_t, M_col_t)))
 
                     # FROM PLASMA CORE
                     elif fromcell_type == 1:  # if fromcell is plasma core cell
@@ -1065,22 +1101,26 @@ class neutpy:
                             # matrix: from slow group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_s)
-                            m_data.append(uncoll_ss + coll_ss)
+                            m_data.append(self.listToFloatChecker(uncoll_ss + coll_ss,
+                                          "Multi-dimensional m_data entry for uncoll_ss + coll_ss at row_s %s, col_s %s" % (M_row_s, M_col_s)))
                             
                             # matrix: from thermal group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_t)
-                            m_data.append(coll_ts)
+                            m_data.append(self.listToFloatChecker(coll_ts,
+                                        "Multi-dimensional m_data entry for coll_ts at row_s %s, col_t %s" % (M_row_s, M_col_t)))
                             
                             # matrix: from slow group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_s)
-                            m_data.append(coll_st)
+                            m_data.append(self.listToFloatChecker(coll_st,
+                                           "Multi-dimensional m_data entry for coll_st at row_t %s, col_s %s" % ( M_row_t, M_col_s)))
                             
                             # matrix: from thermal group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_t)
-                            m_data.append(uncoll_tt + coll_tt)
+                            m_data.append(self.listToFloatChecker(uncoll_tt + coll_tt,
+                                          "Multi-dimensional m_data entry for uncoll_tt + coll_tt at row_t %s, col_t %s" % (M_row_t, M_col_t)))
         
                     # FROM WALL
                     elif fromcell_type == 2:  # if fromcell is wall cell
@@ -1182,22 +1222,30 @@ class neutpy:
                             # matrix: from slow group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_s)
-                            m_data.append(uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss)
+                            m_data.append(self.listToFloatChecker(uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss,
+                                          "Multi-dimensional m_data entry for uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss"
+                                          " at row_s %s, col_s %s" % (M_row_s, M_col_s)))
                             
                             # matrix: from thermal group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_t)
-                            m_data.append(uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts)
+                            m_data.append(self.listToFloatChecker(uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts,
+                                                                "Multi-dimensional m_data entry for uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts"
+                                                                " at row_s %s, col_t %s" % (M_row_s, M_col_t)))
                             
                             # matrix: from slow group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_s)
-                            m_data.append(uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st)
+                            m_data.append(self.listToFloatChecker(uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st,
+                                                                  "Multi-dimensional m_data entry for uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st"
+                                                                  " at row_t %s, col_s %s" % (M_row_t, M_col_s)))
                             
                             # matrix: from thermal group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_t)
-                            m_data.append(uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt)
+                            m_data.append(self.listToFloatChecker(uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt,
+                                                                  "Multi-dimensional m_data entry for uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt"
+                                                                  " at row_t %s, col_t %s" % (M_row_t, M_col_t)))
 
         # create source vector
 
@@ -1279,7 +1327,7 @@ class neutpy:
             M_matrix = np.identity(M_size) - M_matrix
             flux_out = spsolve(M_matrix, source)
         if m_sparse == 1 or m_sparse == 2:
-            # multiply m_data by -1 and append "identify matrix"
+            # multiply m_data by -1 and append "identity matrix"
             # note: we're taking advantage of the way coo_matrix handles duplicate
             # entries to achieve the same thing as I - M
             m_row = np.concatenate((np.asarray(m_row), np.arange(0, M_size)))
@@ -1350,31 +1398,31 @@ class neutpy:
 
         
         # calculate ionization rate
-        cell_izn_rate_s = np.zeros(self.nCells)
-        cell_izn_rate_t = np.zeros(self.nCells)
+        self.cell_izn_rate_s = np.zeros(self.nCells)
+        self.cell_izn_rate_t = np.zeros(self.nCells)
         for i in range(0, self.nCells):
             # add contribution to ionization rate from fluxes streaming into cell
             for k in range(0, self.nSides[i]):
-                    cell_izn_rate_s[i] = cell_izn_rate_s[i] + flux.inc.s[i, k] * (1.0-T_coef.sum_s[i, k]) * \
+                    self.cell_izn_rate_s[i] = self.cell_izn_rate_s[i] + flux.inc.s[i, k] * (1.0-T_coef.sum_s[i, k]) * \
                                          ((1.0-face.ci.s[i, k]) + face.ci.s[i, k]*(1.0-cell.ci.t[i])*(1.0-cell.P0i.t[i])/(1-cell.ci.t[i]*(1.0-cell.P0i.t[i])))
                                             
-                    cell_izn_rate_t[i] = cell_izn_rate_t[i] + flux.inc.t[i, k] * (1.0-T_coef.sum_t[i, k]) * \
+                    self.cell_izn_rate_t[i] = self.cell_izn_rate_t[i] + flux.inc.t[i, k] * (1.0-T_coef.sum_t[i, k]) * \
                                          ((1.0-face.ci.t[i, k]) + face.ci.t[i, k] * (1.0-cell.ci.t[i])*(1.0-cell.P0i.t[i])/(1-cell.ci.t[i]*(1.0-cell.P0i.t[i])))
                                           
             # add contribution to ionization rate from volumetric recombination within the cell
-            cell_izn_rate_s[i] = cell_izn_rate_s[i] + 0 # all recombination neutrals are assumed to be thermal
-            cell_izn_rate_t[i] = cell_izn_rate_t[i] + 0*(1-cell.P0i.t[i])*cell.area[i]*cell.n.i[i]*cell.sv.rec[i] * \
+            self.cell_izn_rate_s[i] = self.cell_izn_rate_s[i] + 0 # all recombination neutrals are assumed to be thermal
+            self.cell_izn_rate_t[i] = self.cell_izn_rate_t[i] + 0*(1-cell.P0i.t[i])*cell.area[i]*cell.n.i[i]*cell.sv.rec[i] * \
                                  (1.0 - cell.ci.t[i] + cell.ci.t[i]*(1.0-cell.ci.t[i])*(1-cell.P0i.t[i])/(1.0-cell.ci.t[i]*(cell.P0i.t[i])))
         
-        cell_izn_rate = cell_izn_rate_s + cell_izn_rate_t
+        self.cell_izn_rate = self.cell_izn_rate_s + self.cell_izn_rate_t
         
         # calculate neutral densities from ionization rates
-        cell_nn_s = cell_izn_rate_s / (cell.n.i*cell.sv.ion*cell.area)
-        cell_nn_t = cell_izn_rate_t / (cell.n.i*cell.sv.ion*cell.area)
-        cell_nn = cell_izn_rate / (cell.n.i*cell.sv.ion*cell.area)
+        self.cell_nn_s = self.cell_izn_rate_s / (cell.n.i*cell.sv.ion*cell.area)
+        self.cell_nn_t = self.cell_izn_rate_t / (cell.n.i*cell.sv.ion*cell.area)
+        self.cell_nn = self.cell_izn_rate / (cell.n.i*cell.sv.ion*cell.area)
         
         # # fix negative values (usually won't be necessary)
-        for i, v1 in enumerate(cell_nn):
+        for i, v1 in enumerate(self.cell_nn):
             if v1<0:
                 # get neutral densities of adjacent cells
                 # average the positive values
@@ -1384,21 +1432,21 @@ class neutpy:
                 nn_count = 0
                 for j, v2 in enumerate(self.adjCell[i]):
                     if self.iType[v2] == 0:
-                        if cell_nn[j] > 0:
-                            nn_sum = nn_sum + cell_nn[j]
+                        if self.cell_nn[j] > 0:
+                            nn_sum = nn_sum + self.cell_nn[j]
                             nn_count += 1
-                cell_nn[i] = nn_sum / nn_count
+                self.cell_nn[i] = nn_sum / nn_count
 
         izn_rate_dict = {}
-        izn_rate_dict['s'] = cell_izn_rate_s
-        izn_rate_dict['t'] = cell_izn_rate_t
-        izn_rate_dict['tot'] = cell_izn_rate
+        izn_rate_dict['s'] = self.cell_izn_rate_s
+        izn_rate_dict['t'] = self.cell_izn_rate_t
+        izn_rate_dict['tot'] = self.cell_izn_rate
         izn_rate = namedtuple('izn_rate', izn_rate_dict.keys())(*izn_rate_dict.values())
 
         nn_dict = {}
-        nn_dict['s'] = cell_nn_s
-        nn_dict['t'] = cell_nn_t
-        nn_dict['tot'] = cell_nn
+        nn_dict['s'] = self.cell_nn_s
+        nn_dict['t'] = self.cell_nn_t
+        nn_dict['tot'] = self.cell_nn
         nn = namedtuple('nn', izn_rate_dict.keys())(*nn_dict.values())
 
         return izn_rate, nn
