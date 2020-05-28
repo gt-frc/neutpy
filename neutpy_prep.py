@@ -7,11 +7,6 @@
 from __future__ import division
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import measure
-#import matplotlib._cntr as cntr
-
-from matplotlib.pyplot import contour as cntr
-import legacycontour as legacycntr
 from scipy.interpolate import griddata, UnivariateSpline
 from scipy.constants import elementary_charge
 from shapely.geometry import Point, LineString, LinearRing
@@ -130,6 +125,7 @@ class neutpy_prep():
         self.invars["xi_ob_pts"] = ["int", r0di]
         self.invars["BT0"] = ["float", r0df]
         self.invars["verbose"] = ["int", r0di]
+        self.invars["num_cpu_cores"] = ["int", r0di]
         self.invars["core_pol_pts"] = ["int", r0di]
         self.invars["ib_div_pol_pts"] = ["int", r0di]
         self.invars["ob_div_pol_pts"] = ["int", r0di]
@@ -1607,9 +1603,9 @@ class neutpy_prep():
 
 
 inst = neutpy_prep('toneutprep')
-plt.show()
 
-"""
+
+
 fig_width = 6.0
 fig_height = (np.amax(inst.Z) - np.amin(inst.Z)) / (np.amax(inst.R) - np.amin(inst.R)) * fig_width
 
@@ -1622,19 +1618,19 @@ ax1.axis('equal')
 
 # ax1.contourf(inst.R, inst.Z, inst.psi, 500)
 
-Br = np.gradient(inst.psi, axis=1)/inst.R
-Bz = -np.gradient(inst.psi, axis=0)/inst.R
-B_p = np.sqrt((np.gradient(inst.psi, axis=1)/inst.R)**2 + \
-                (-np.gradient(inst.psi, axis=0)/inst.R)**2)
-ax1.contourf(inst.R, inst.Z, B_p, 500)
+# Br = np.gradient(inst.psi, axis=1)/inst.R
+# Bz = -np.gradient(inst.psi, axis=0)/inst.R
+# B_p = np.sqrt((np.gradient(inst.psi, axis=1)/inst.R)**2 + \
+#                 (-np.gradient(inst.psi, axis=0)/inst.R)**2)
+# ax1.contourf(inst.R, inst.Z, B_p, 500)
 
-ax1.plot(inst.wallx, inst.wally, color='black', lw=1, zorder=10)
+#ax1.plot(inst.wallx, inst.wally, color='black', lw=1, zorder=10)
 
-for i in range(int(len(inst.dpsidR_0)/2)):
-    x1, y1 = np.split(inst.dpsidR_0[i], 2, axis=1)
-    # ax1.plot(x1, y1, color='red', lw=1, label = 'dpsidR=0')
-for i in range(int(len(inst.dpsidZ_0)/2)):
-    x1, y1 = np.split(inst.dpsidZ_0[i], 2, axis=1)
+# for i in range(int(len(inst.dpsidR_0)/2)):
+#     x1, y1 = np.split(inst.dpsidR_0[i], 2, axis=1)
+#     # ax1.plot(x1, y1, color='red', lw=1, label = 'dpsidR=0')
+# for i in range(int(len(inst.dpsidZ_0)/2)):
+#     x1, y1 = np.split(inst.dpsidZ_0[i], 2, axis=1)
     # ax1.plot(x1, y1, color='blue', lw=1, label = 'dpsidZ=0')
 # ax1.legend()
 
@@ -1648,28 +1644,29 @@ for i in range(int(len(inst.dpsidZ_0)/2)):
 # dnidr = np.abs(np.gradient(ni, axis=1)) + np.abs(np.gradient(ni, axis=0))
 # ax1.contourf(R, Z, dnidr, 500)
 
+#
+# # seperatrix
+# coords = np.asarray(inst.main_sep_line.coords)
+# coords = np.vstack((coords, coords[0]))
+# ax1.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
+#
+# # inboard divertor
+# coords = np.asarray(inst.ib_div_line_cut.coords)
+# ax1.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
+#
+# # outboard divertor
+# coords = np.asarray(inst.ob_div_line_cut.coords)
+# ax1.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
+#
+# # plot core lines
+# for i, line in enumerate(inst.core_lines):
+#     coords = np.asarray(line.coords)
+#     coords = np.vstack((coords, coords[0]))
+#     # ax1.plot(coords[:, 0], coords[:, 1], color='pink', lw=1)
+#
+# # plot sol lines
+# for i, line in enumerate(inst.sol_lines_cut):
+#     coords = np.asarray(line.coords)
+#     # ax1.plot(coords[:, 0], coords[:, 1], color='lime', lw=1)
 
-# seperatrix
-coords = np.asarray(inst.main_sep_line.coords)
-coords = np.vstack((coords, coords[0]))
-ax1.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
-
-# inboard divertor
-coords = np.asarray(inst.ib_div_line_cut.coords)
-ax1.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
-
-# outboard divertor
-coords = np.asarray(inst.ob_div_line_cut.coords)
-ax1.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
-
-# plot core lines
-for i, line in enumerate(inst.core_lines):
-    coords = np.asarray(line.coords)
-    coords = np.vstack((coords, coords[0]))
-    # ax1.plot(coords[:, 0], coords[:, 1], color='pink', lw=1)
-
-# plot sol lines
-for i, line in enumerate(inst.sol_lines_cut):
-    coords = np.asarray(line.coords)
-    # ax1.plot(coords[:, 0], coords[:, 1], color='lime', lw=1)
-"""
+plt.show()

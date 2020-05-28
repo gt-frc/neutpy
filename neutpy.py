@@ -15,6 +15,7 @@ from math import sqrt, pi, sin, tan, exp
 from coeff_calc import coeff_calc
 import numpy as np
 from pathos.multiprocessing import ProcessPool as Pool
+from pathos.multiprocessing import cpu_count
 from scipy.interpolate import interp1d
 from scipy import integrate
 from scipy.constants import m_p
@@ -876,7 +877,14 @@ class neutpy:
 
         start_time = time.time()
         print "Start time: %s" % start_time
-        pool = Pool(3)
+
+        # Use all but one CPU
+        # TODO: Make this user configurable
+        if self.num_cpu_cores > cpu_count():
+            pool = Pool(cpu_count() - 1)
+        else:
+            pool = Pool(self.num_cpu_cores)
+
         cord_list = list(np.ndenumerate(T_coef_s))
         #for (i, j, k), val in np.ndenumerate(T_coef_s):
             # nSides, adjCell, lsides, T_from, T_to, T_via, int_method, T_coef_s, T_coef_t, midpoint2D, face_mfp_t, face_mfp_s, print_progress, outof, selfAngles
