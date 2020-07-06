@@ -40,7 +40,6 @@ def isnamedtupleinstance(x):
         return False
     return all(type(n) == str for n in f)
 
-
 def iterate_namedtuple(object, df):
     if isnamedtupleinstance(object):
         for key, item in object._asdict().iteritems():
@@ -51,7 +50,6 @@ def iterate_namedtuple(object, df):
     else:
         pass
     return df
-
 
 # isclose is included in python3.5+, so you can delete this if the code ever gets ported into python3.5+
 def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
@@ -553,7 +551,7 @@ def calc_ext_src(face_adj, src):
 
 class neutpy:
     
-    def __init__(self, infile=None, inarrs=None, verbose=False):
+    def __init__(self, infile=None, inarrs=None, verbose=False, cpu_cores=1):
         print 'BEGINNING NEUTPY'
         
         sys.dont_write_bytecode = True 
@@ -719,7 +717,7 @@ class neutpy:
         face = namedtuple('face', face_dict.keys())(*face_dict.values())
 
         # compute transmission coefficients
-        self.T_coef = self.calc_tcoefs(face, int_method='quad')
+        self.T_coef = self.calc_tcoefs(face, int_method='quad', cpu_cores=cpu_cores)
 
         # construct and solve the matrix to obtain the fluxes
         self.flux = self.solve_matrix(face, cell, self.T_coef)
@@ -798,7 +796,7 @@ class neutpy:
 
         return face_adj
 
-    def calc_tcoefs(self, face, int_method='quad'):
+    def calc_tcoefs(self, face, int_method='quad', cpu_cores=1):
         # create bickley-naylor fit (much faster than evaluating Ki3 over and over)
         Ki3_x = np.linspace(0, 100, 200)
         Ki3 = np.zeros(Ki3_x.shape)
@@ -880,10 +878,10 @@ class neutpy:
 
         # Use all but one CPU
         # TODO: Make this user configurable
-        if self.num_cpu_cores > cpu_count():
+        if cpu_cores > cpu_count():
             pool = Pool(cpu_count() - 1)
         else:
-            pool = Pool(self.num_cpu_cores)
+            pool = Pool(cpu_cores)
 
         cord_list = list(np.ndenumerate(T_coef_s))
         #for (i, j, k), val in np.ndenumerate(T_coef_s):

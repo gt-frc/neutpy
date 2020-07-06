@@ -35,7 +35,7 @@ Set executable
 
 Set link
  
-`sudo ln -s triangle /usr/local/bin`
+`$ sudo ln -s triangle /usr/local/bin`
 
 **Install NeutPy**
 

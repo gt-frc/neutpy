@@ -1570,7 +1570,9 @@ class neutpy_prep():
         toneutpy["cell1_theta0"] = cell1_theta0
         
         time0 = time.time()
-        self.neutpy_inst = neutpy(inarrs=toneutpy)
+        try: self.num_cpu_cores
+        except: self.num_cpu_cores = 1
+        self.neutpy_inst = neutpy(inarrs=toneutpy, cpu_cores=self.num_cpu_cores)
         time1 = time.time()
         minutes, seconds = divmod(time1-time0, 60)
         print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
