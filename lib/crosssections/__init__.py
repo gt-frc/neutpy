@@ -7,7 +7,7 @@ Created on Thu May 17 07:01:17 2018
 """
 from __future__ import division
 import numpy as np
-from scipy.interpolate import griddata, interp1d, interp2d, Rbf
+from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
 
 class calc_xsec:
@@ -80,7 +80,6 @@ class calc_xsec:
     def cx_degas(self, Ti, Tn):
         """"""
         return self.cx_degas_rbf(np.log10(Tn), np.log10(Ti))
-
 
 # module level functions
 def calc_svione_st():
@@ -1601,6 +1600,138 @@ def calc_svcx_degas():
 
     return Rbf(Tn_vals, Ti_vals, cx_data)
 
+def calc_svrec(n, T, xsec_rec='stacey_thomas'):
+    """
+        Calculate recombination cross section.
+
+    :param n:
+    :param T:
+    :param xsec_rec:
+    :return:
+    """
+
+    Te = T.e
+
+    # reshape ne if necessary, i.e. when calculating face values
+    # note, this shouldn't ever be necessary for this sv, but I could be wrong.
+    if Te.ndim == 2:
+        ne = np.repeat(n.e.reshape(-1, 1), Te.shape[1], axis=1)
+    else:
+        ne = n.e
+
+    if xsec_rec == 'stacey_thomas':
+        sv_rec = sv.rec_st(ne, Te)
+    elif xsec_rec == 'degas':
+        sv_rec = sv.rec_degas(ne, Te)
+    return sv_rec
+
+
+def calc_svcx(T, Tn, en_grp, xsec_cx='degas'):
+    """
+        Calculate charge exchange cross sections
+
+    :param T:
+    :param Tn:
+    :param en_grp:
+    :param xsec_cx:
+    :return:
+    """
+    # determine neutral temperature array to use based on specified group
+    Tn = Tn.s if en_grp == 'slow' else Tn.t
+
+    # reshape ne if necessary, i.e. when calculating face values
+    if Tn.ndim == 2:
+        Ti = np.repeat(T.i.reshape(-1, 1), Tn.shape[1], axis=1)
+    else:
+        Ti = T.i
+
+    if xsec_cx == 'janev':
+        sv_cx = sv.cx_janev(Ti, Tn)
+    elif xsec_cx == 'stacey_thomas':
+        sv_cx = sv.cx_st(Ti, Tn)
+    elif xsec_cx == 'degas':
+        sv_cx = sv.cx_degas(Ti, Tn)
+
+    return sv_cx
+
+
+def calc_svel(T, Tn, en_grp, xsec_el='stacey_thomas'):
+    """
+        Calculates elastic scattering with ions cross sections
+
+    :param T:
+    :param Tn:
+    :param en_grp:
+    :param xsec_el:
+    :return:
+    """
+    # determine neutral temperature array to use based on specified group
+    Tn = Tn.s if en_grp == 'slow' else Tn.t
+
+    # reshape ne if necessary, i.e. when calculating face values
+    if Tn.ndim == 2:
+        Ti = np.repeat(T.i.reshape(-1, 1), Tn.shape[1], axis=1)
+    else:
+        Ti = T.i
+
+    if xsec_el == 'janev':
+        print 'janev elastic scattering cross sections not available. Using Stacey-Thomas instead.'
+        sv_el = sv.el_st(Ti, Tn)
+    elif xsec_el == 'stacey_thomas':
+        sv_el = sv.el_st(Ti, Tn)
+    elif xsec_el == 'degas':
+        print 'degas elastic scattering cross sections not available. Using Stacey-Thomas instead.'
+        sv_el = sv.el_st(Ti, Tn)
+    return sv_el
+
+
+def calc_sveln(Tn, en_grp, xsec_eln='stacey_thomas'):
+    """
+        Calculates elastic scattering with neutrals cross sections
+
+    :param Tn:
+    :param en_grp:
+    :param xsec_eln:
+    :return:
+    """
+    # determine neutral temperature array to use based on specified group
+    Tn = Tn.s if en_grp == 'slow' else Tn.t
+
+    if xsec_eln == 'janev':
+        print 'janev elastic scattering cross sections not available. Using Stacey-Thomas instead..'
+        sv_eln = sv.eln_st(Tn)
+    elif xsec_eln == 'stacey_thomas':
+        sv_eln = sv.eln_st(Tn)
+    elif xsec_eln == 'degas':
+        print 'degas elastic scattering cross sections not available. Using Stacey-Thomas instead..'
+        sv_eln = sv.eln_st(Tn)
+    return sv_eln
+
+def calc_svione(n, T, xsec_ione='degas'):
+    """
+
+    :param n:
+    :param T:
+    :param xsec_ione:
+    :return:
+    """
+
+    Te = T.e
+
+    # reshape ne if necessary, i.e. when calculating face values
+    # note, this shouldn't ever be necessary for this sv, but I could be wrong.
+    if Te.ndim == 2:
+        ne = np.repeat(n.e.reshape(-1, 1), Te.shape[1], axis=1)
+    else:
+        ne = n.e
+
+    if xsec_ione == 'janev':
+        sv_ione = sv.ione_janev(Te)
+    elif xsec_ione == 'stacey_thomas':
+        sv_ione = sv.ione_st(ne, Te)
+    elif xsec_ione == 'degas':
+        sv_ione = sv.ione_degas(ne, Te)
+    return sv_ione
 
 #############################################################################
 #############################################################################
