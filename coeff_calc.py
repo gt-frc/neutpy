@@ -1,14 +1,11 @@
-#!/usr/bin/python2.7
-
+#!/usr/bin/python
+from math import pi, sin, tan, sqrt
 import numpy as np
-from math import pi
-
 from scipy import integrate
+from lib.tools import isclose
 import sys
-from math import sin
 
-
-def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
+def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell):
     try:
         result = (2.0 / (pi * -1 * x_comp[-1])) * sin(phi) * Ki3_fit(li(phi, xi, x_coords, y_coords, reg) / mfp)
         return result
@@ -26,21 +23,69 @@ def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, t
             result = (2.0 / (pi * -1 * x_comp[-1])) * sin(phi) * Ki3_fit(100.0)
             return result
 
-def phi_limits(xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
+
+def li(phi, xi, x_coords, y_coords, reg):
+    x_coords = x_coords - xi
+
+    vert_phis = np.arctan2(y_coords, x_coords)
+    vert_phis[0] = 0
+    vert_phis[-1] = pi
+
+    if phi < pi:
+        reg = np.searchsorted(vert_phis, phi, side='right') - 1
+    else:
+        reg = np.searchsorted(vert_phis, phi, side='right') - 2
+
+    # points defining the side of the cell we're going to intersect with
+    # eq of line is y = ((y2-y2)/(x2-x1))(x-x1)+y1
+    x1, y1 = x_coords[reg], y_coords[reg]
+    x2, y2 = x_coords[reg + 1], y_coords[reg + 1]
+
+    # calculate intersection point
+    if isclose(x2, x1):  # then line is vertical
+        x_int = x1
+        y_int = tan(phi) * x_int
+    else:
+        # eq of the intersecting line is y= tan(phi)x ( + 0 because of coordinate system choice)
+        # set two equations equal and solve for x, then solve for y
+        x_int = ((y2 - y1) / (x2 - x1) * x1 - y1) / ((y2 - y1) / (x2 - x1) - tan(phi))
+        y_int = tan(phi) * x_int
+
+    return sqrt(x_int ** 2 + y_int ** 2)
+
+
+def phi_limits(xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell):
     x_coords = x_coords - xi
     vert_phis = np.arctan2(y_coords, x_coords)
     vert_phis[0] = 0
     vert_phis[-1] = pi
-    return [vert_phis[reg], vert_phis[reg+1]]
+    return [vert_phis[reg], vert_phis[reg + 1]]
 
 
-def xi_limits(x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
+def xi_limits(x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell):
     return [0, -1 * x_comp[-1]]
 
-def coeff_calc(inputs,*args, **kwargs):
+
+def coeff_calc(inputs, *args, **kwargs):
     i = inputs[0][0]
     j = inputs[0][1]
     k = inputs[0][2]
+
+    def midpoint2D(f, f_limx, f_limy, nx, ny, **kwargs):
+        """calculates a double integral using the midpoint rule"""
+        I = 0
+        # start with outside (y) limits of integration
+        c, d = f_limy(**kwargs)
+        hy = (d - c) / float(ny)
+        for j in range(ny):
+            yj = c + hy / 2 + j * hy
+            # for each j, calculate inside limits of integration
+            a, b = f_limx(yj, **kwargs)
+            hx = (b - a) / float(nx)
+            for i in range(nx):
+                xi = a + hx / 2 + i * hx
+                I += hx * hy * f(xi, yj, **kwargs)
+        return I
 
     nSides = kwargs['nSides']
     adjCell = kwargs['adjCell']
@@ -51,7 +96,6 @@ def coeff_calc(inputs,*args, **kwargs):
     int_method = kwargs['int_method']
     T_coef_s = kwargs['T_coef_s']
     T_coef_t = kwargs['T_coef_t']
-    midpoint2D = kwargs['midpoint2D']
     face_mfp_t = kwargs['face_mfp_t']
     face_mfp_s = kwargs['face_mfp_s']
     # print_progress = kwargs['print_progress']
@@ -60,8 +104,7 @@ def coeff_calc(inputs,*args, **kwargs):
     Ki3_fit = kwargs['Ki3_fit']
     li = kwargs['li']
 
-
-    #progress = nSides[i] ** 2 * i  # + self.nSides[i]*j + k
+    # progress = nSides[i] ** 2 * i  # + self.nSides[i]*j + k
 
     L_sides = np.roll(lsides[i, :nSides[i]], -(j + 1))  # begins with length of the current "from" side
     adj_cells = np.roll(adjCell[i, :nSides[i]], -j)
@@ -167,7 +210,7 @@ def coeff_calc(inputs,*args, **kwargs):
                 print 'x_coords = ', x_coords
                 print 'y_coords = ', y_coords
                 print 'reg = ', reg
-            #=    print 'face.mfp.t[i, j] = ', face.mfp.t[i, j]
+                # =    print 'face.mfp.t[i, j] = ', face.mfp.t[i, j]
                 print 'adj_cells[0] = ', adj_cells[0]
                 print 'adj_cells[k-j] = ', adj_cells[k - j]
                 sys.exit()

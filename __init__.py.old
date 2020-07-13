@@ -498,7 +498,7 @@ class neutpy:
                 for k in range(0, int(self.nSides[i])):
 
                     curcell = int(i)
-                    tocell = int(self.adjCell[i, j])
+                    ocell = int(self.adjCell[i, j])
                     fromcell = int(self.adjCell[i, k])
 
                     # curcell_type = int(inp.iType[curcell])

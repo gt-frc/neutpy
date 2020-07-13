@@ -4,7 +4,10 @@
 
 - **Triangle Installation**
 
-The Triangle 2D mesh generator is required for neutpy mesh generation. Ensure that you have a C compiler installed.
+The Triangle 2D mesh generator is required for neutpy mesh generation. This will install Triangle
+locally to the neutpy directory. If you imagine using triangle otherwise, consider
+following the steps below but with consideration for global installation (e.g., cloning to /opt/ instead
+of the neutpy directory). Ensure that you have a C compiler installed.
 Download the Triangle zip file from https://www.cs.cmu.edu/~quake/triangle.html or 
 
 `$ cd /your/future/neutpy/home/`
@@ -13,13 +16,17 @@ Download the Triangle zip file from https://www.cs.cmu.edu/~quake/triangle.html 
 
 `$ cd triangle`
 
-Read the README file for instructions on how to compile. It's pretty basic.
-
 Make your bin directory
 
 `$ mkdir bin`
 
-Edit the makefile, noting any special options from the README.
+Read the README file for instructions on how to compile. It's pretty basic. We recommend simply
+compiling triangle alone with (using GCC) since we do not use showme.
+
+`$ gcc -O -o bin/triangle triangle.c -lm`
+
+If you want to fully compile, edit the makefile,
+noting any special options from the README.
 
 Keep `SRC = ./` and set `BIN = ./bin/`
 
@@ -27,13 +34,13 @@ Make triangle
 
 `$ make`
 
-Set executable
+After triangle is compiled, set executable
 
 `$ cd bin`
 
 `$ sudo chmod +x triangle`
 
-Set link
+Set link (this allows triangle to be called on command line as triangle)
  
 `$ sudo ln -s triangle /usr/local/bin`
 

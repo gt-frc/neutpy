@@ -10,6 +10,7 @@ import numpy as np
 from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
 
+
 class calc_xsec:
     def __init__(self):
 
@@ -1600,7 +1601,7 @@ def calc_svcx_degas():
 
     return Rbf(Tn_vals, Ti_vals, cx_data)
 
-def calc_svrec(n, T, xsec_rec='stacey_thomas'):
+def calc_svrec(sv, n, T, xsec_rec='stacey_thomas'):
     """
         Calculate recombination cross section.
 
@@ -1626,7 +1627,7 @@ def calc_svrec(n, T, xsec_rec='stacey_thomas'):
     return sv_rec
 
 
-def calc_svcx(T, Tn, en_grp, xsec_cx='degas'):
+def calc_svcx(sv, T, Tn, en_grp, xsec_cx='degas'):
     """
         Calculate charge exchange cross sections
 
@@ -1655,7 +1656,7 @@ def calc_svcx(T, Tn, en_grp, xsec_cx='degas'):
     return sv_cx
 
 
-def calc_svel(T, Tn, en_grp, xsec_el='stacey_thomas'):
+def calc_svel(sv, T, Tn, en_grp, xsec_el='stacey_thomas'):
     """
         Calculates elastic scattering with ions cross sections
 
@@ -1685,7 +1686,7 @@ def calc_svel(T, Tn, en_grp, xsec_el='stacey_thomas'):
     return sv_el
 
 
-def calc_sveln(Tn, en_grp, xsec_eln='stacey_thomas'):
+def calc_sveln(sv, Tn, en_grp, xsec_eln='stacey_thomas'):
     """
         Calculates elastic scattering with neutrals cross sections
 
@@ -1707,7 +1708,7 @@ def calc_sveln(Tn, en_grp, xsec_eln='stacey_thomas'):
         sv_eln = sv.eln_st(Tn)
     return sv_eln
 
-def calc_svione(n, T, xsec_ione='degas'):
+def calc_svione(sv, n, T, xsec_ione='degas'):
     """
 
     :param n:

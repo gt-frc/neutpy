@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# coding=utf-8
 
 from __future__ import division
 import numpy as np
@@ -6,11 +7,18 @@ from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
+from scipy import integrate
 import sys
 from math import pi
 import os
 import re
 import pandas as pd
+from math import sin, exp, sqrt, acos, degrees
+from collections import namedtuple
+from scipy.constants import physical_constants
+from shapely.geometry import LineString, Point
+
+m_p = physical_constants['proton mass'][0]
 
 def isnamedtupleinstance(x):
     """
@@ -63,22 +71,6 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=0, bar_lengt
 
     sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix))
 
-
-def midpoint2D(f, f_limx, f_limy, nx, ny, **kwargs):
-    """calculates a double integral using the midpoint rule"""
-    I = 0
-    # start with outside (y) limits of integration
-    c, d = f_limy(**kwargs)
-    hy = (d - c) / float(ny)
-    for j in range(ny):
-        yj = c + hy / 2 + j * hy
-        # for each j, calculate inside limits of integration
-        a, b = f_limx(yj, **kwargs)
-        hx = (b - a) / float(nx)
-        for i in range(nx):
-            xi = a + hx / 2 + i * hx
-            I += hx * hy * f(xi, yj, **kwargs)
-    return I
 
 
 def calc_Ki3(x):
@@ -620,8 +612,8 @@ class NeutpyTools:
         # fig.savefig('figure.png', dpi=300, transparent=True, bbox_inches="tight")
 
     def interp_RZ(self, var):
-        x = np.average(xs, axis=1)
-        y = np.average(ys, axis=1)
+        x = np.average(self.xs, axis=1)
+        y = np.average(self.ys, axis=1)
         d = self.vars[var]
         return Rbf(x, y, d)
 
