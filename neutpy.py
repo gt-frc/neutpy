@@ -21,7 +21,7 @@ from lib.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, calc
 from lib.tools import calc_mfp, calc_X_i, calc_P_0i, isclose
 from lib.tools import calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, calc_ext_src
 from functools import partial
-from pathos.multiprocessing import ProcessPool as Pool
+from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata, UnivariateSpline
@@ -1935,7 +1935,7 @@ class neutpy:
                   'T_coef_t': T_coef_t,
                   'face_mfp_t': face.mfp.t,
                   'face_mfp_s': face.mfp.s,
-                  #'print_progress': print_progress,
+                  'print_progress': None,
                   'outof': outof,
                   'angles': self.angles,
                   'Ki3_fit': Ki3_fit,
@@ -1949,8 +1949,9 @@ class neutpy:
         else:
             pool = Pool(cpu_cores)
             print "T_coef calculation running on %s cores." % cpu_cores
-        #result = pool.map(partial(coeff_calc, **kwargs), cord_list)
-        result = pool.map(partial(coeff_calc), cord_list)
+
+        result = pool.map(partial(coeff_calc, **kwargs), cord_list)
+        #result = pool.map(partial(coeff_calc), cord_list)
 
         # result = [(0, 0, 0, 0, 0)] * (self.nCells * 4 * 4)
 

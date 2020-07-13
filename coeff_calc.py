@@ -5,7 +5,7 @@ from scipy import integrate
 from lib.tools import isclose
 import sys
 
-def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell):
+def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
     try:
         result = (2.0 / (pi * -1 * x_comp[-1])) * sin(phi) * Ki3_fit(li(phi, xi, x_coords, y_coords, reg) / mfp)
         return result
@@ -54,7 +54,7 @@ def li(phi, xi, x_coords, y_coords, reg):
     return sqrt(x_int ** 2 + y_int ** 2)
 
 
-def phi_limits(xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell):
+def phi_limits(xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
     x_coords = x_coords - xi
     vert_phis = np.arctan2(y_coords, x_coords)
     vert_phis[0] = 0
@@ -62,7 +62,7 @@ def phi_limits(xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocel
     return [vert_phis[reg], vert_phis[reg + 1]]
 
 
-def xi_limits(x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell):
+def xi_limits(x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
     return [0, -1 * x_comp[-1]]
 
 
@@ -98,8 +98,8 @@ def coeff_calc(inputs, *args, **kwargs):
     T_coef_t = kwargs['T_coef_t']
     face_mfp_t = kwargs['face_mfp_t']
     face_mfp_s = kwargs['face_mfp_s']
-    # print_progress = kwargs['print_progress']
-    # outof = kwargs['outof']
+    print_progress = kwargs['print_progress']
+    outof = kwargs['outof']
     selfAngles = kwargs['angles']
     Ki3_fit = kwargs['Ki3_fit']
     li = kwargs['li']
