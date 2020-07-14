@@ -1,15 +1,8 @@
-# !/usr/bin/env python2
-#  -*- coding: utf-8 -*-
-"""
+#!/usr/bin/python
 
-@author: Max Hill
-"""
-from __future__ import division
-import numpy as np
-import matplotlib.pyplot as plt
+# Plotting packages for neutpy
 
-inst = neutpy_prep('toneutprep')
-
+# TODO: Actually implement this unless they will just be neutpy class methods
 
 #
 # fig_width = 6.0
@@ -74,5 +67,3 @@ inst = neutpy_prep('toneutprep')
 # for i, line in enumerate(inst.sol_lines_cut):
 #     coords = np.asarray(line.coords)
 #     # ax1.plot(coords[:, 0], coords[:, 1], color='lime', lw=1)
-
-plt.show()

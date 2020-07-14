@@ -8,18 +8,17 @@ The neutpy module contains three classes: neutpy, read_infile, and neutpyplot.
 
 from __future__ import division
 
-from math import  tan
-
+from math import tan
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
 from coeff_calc import coeff_calc
 from collections import namedtuple
-import warnings
 from lib.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, calc_svione, calc_xsec
-from lib.tools import calc_mfp, calc_X_i, calc_P_0i, isclose
-from lib.tools import calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, calc_ext_src
+from lib.physics import calc_mfp, calc_X_i, calc_P_0i, calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, \
+    calc_ext_src
+from lib.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
@@ -28,38 +27,19 @@ from scipy.interpolate import griddata, UnivariateSpline
 from scipy.constants import elementary_charge
 from shapely.geometry import Point, LineString, LinearRing
 from shapely.ops import polygonize, linemerge
-from math import degrees, sqrt, acos, pi
-import sys
-import os
-import re
-import json
-import yaml
+from math import degrees, sqrt, pi
+import sys, os, re, json, yaml
 from subprocess import call
 import time
 import ConfigParser
-import dill
-import multiprocess
-
-def midpoint2D(f, f_limx, f_limy, nx, ny, **kwargs):
-    """calculates a double integral using the midpoint rule"""
-    I = 0
-    # start with outside (y) limits of integration
-    c, d = f_limy(**kwargs)
-    hy = (d - c) / float(ny)
-    for j in range(ny):
-        yj = c + hy / 2 + j * hy
-        # for each j, calculate inside limits of integration
-        a, b = f_limx(yj, **kwargs)
-        hx = (b - a) / float(nx)
-        for i in range(nx):
-            xi = a + hx / 2 + i * hx
-            I += hx * hy * f(xi, yj, **kwargs)
-    return I
 
 
 class neutpy:
 
-    def __init__(self, infile=None, inarrs=None, verbose=False):
+    lsides = None  # type: np.ndarray
+    nCells = None  # type: int
+
+    def __init__(self, verbose=False):
         self.lsides = None
         self.elecTemp = None
         self.nCells = None
@@ -67,7 +47,8 @@ class neutpy:
         self.elecDens = None
         self.ionDens = None
         self.cpu_cores = 1
-        print 'BEGINNING NEUTPY'
+        self.config_loc = "neutpy.conf"
+        print 'INITIALIZING NEUTPY'
 
         sys.dont_write_bytecode = True
         if not os.path.exists(os.getcwd() + '/outputs'):
@@ -79,41 +60,57 @@ class neutpy:
         self.sv = calc_xsec()
 
     def from_mesh(self, filename):
-        inp = read_infile(filename)
+        """
+        Runs NeutPy assuming a meshing has already been generated
+        :param filename:
+        """
+        # TODO: Allow neutpy to be run from a mesh JSON
+        # inp = read_infile(filename)
+        raise NotImplementedError
 
     def from_file(self, infile):
         """
         Instantiate NeutPy using the main configuration file as well as a file containing profile and plasma data
+
         :param infile: The shot data, including profiles and plasma parameters (e.g., BT0)
         :type infile: str
         """
         self.read_config(infile)
-        if self.verbose: print 'sep_lines'
+        if self.verbose: print 'Generating separatrix lines'
         self.get_sep_lines()
 
-        if self.verbose: print 'core_lines'
+        if self.verbose: print 'Generating core lines'
         self.get_core_lines()
 
-        if self.verbose: print 'sol_lines'
+        if self.verbose: print 'Generating scrape-off layer lines'
         self.get_sol_lines()
 
-        if self.verbose: print 'pfr_lines'
+        if self.verbose: print 'Generating private flux region'
         self.pfr_lines()
 
-        if self.verbose: print 'core_nT'
+        if self.verbose: print 'Generating core background plasma'
         self.core_nT()
 
-        if self.verbose: print 'sol_nT'
+        if self.verbose: print 'Generating scrape-off layer'
         self.sol_nT()
 
-        if self.verbose: print 'pfr_nT'
+        if self.verbose: print 'Generating private flux region'
         self.pfr_nT()
 
+        if self.verbose: print 'Running Triangle meshing routine'
         self.triangle_prep()
         self.read_triangle()
 
+        if self.verbose: print 'Running neutrals calculation'
+        self._run()
 
     def get_sep_lines(self):
+        """
+        Generate the separatric lines
+
+        :rtype: None
+
+        """
         # find x-point location
         dpsidR = np.gradient(self.psi, self.R[0, :], axis=1)
         dpsidZ = np.gradient(self.psi, self.Z[:, 0], axis=0)
@@ -185,7 +182,7 @@ class neutpy:
             # a single line from inboard divertor to outboard divertor. We need to
             # add in the x-point in at the appropriate locations and split into a
             # main and a lower seperatrix line, each of which will include the x-point.
-            x_psi, y_psi = self.draw_line(self.R, self.Z, self.psi_norm, 1.0, 0)
+            x_psi, y_psi = draw_line(self.R, self.Z, self.psi_norm, 1.0, 0)
 
             loc1 = np.argmax(y_psi > self.xpt[1])
             loc2 = len(y_psi) - np.argmin(y_psi[::-1] < self.xpt[1])
@@ -208,7 +205,7 @@ class neutpy:
             line = LineString(self.inboard_div_sep)
             int_pt = line.intersection(self.wall_line)
             self.ib_div_line = line
-            self.ib_div_line_cut = self.cut(line, line.project(int_pt, normalized=True))[0]
+            self.ib_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
             # self.ib_div_line_cut = line
             # TODO: add point to wall line
 
@@ -216,7 +213,7 @@ class neutpy:
             line = LineString(self.outboard_div_sep)
             int_pt = line.intersection(self.wall_line)
             self.ob_div_line = line
-            self.ob_div_line_cut = self.cut(line, line.project(int_pt, normalized=True))[0]
+            self.ob_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
 
             ib_div_pts = np.flipud(np.asarray(self.ib_div_line_cut.xy).T)
             sep_pts = np.asarray(self.main_sep_line.xy).T
@@ -232,7 +229,7 @@ class neutpy:
             # seperatrix trace (line 1).
 
             # first do lower seperatrix line
-            x_psi, y_psi = self.draw_line(self.R, self.Z, self.psi_norm, 1.0, 0)
+            x_psi, y_psi = draw_line(self.R, self.Z, self.psi_norm, 1.0, 0)
             loc = np.argmax(x_psi > self.xpt[0])
 
             x_psi = np.insert(x_psi, loc, self.xpt[0])
@@ -246,22 +243,22 @@ class neutpy:
             line = LineString(self.inboard_div_sep)
             int_pt = line.intersection(self.wall_line)
             self.ib_div_line = line
-            self.ib_div_line_cut = self.cut(line, line.project(int_pt, normalized=True))[0]
+            self.ib_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
 
             # cut inboard line at the wall and add intersection point to wall_line
             line = LineString(self.outboard_div_sep)
             int_pt = line.intersection(self.wall_line)
             self.ob_div_line = line
-            self.ob_div_line_cut = self.cut(line, line.project(int_pt, normalized=True))[0]
+            self.ob_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
             # TODO: add point to wall line
 
             # now to main seperatrix line
-            x_psi, y_psi = self.draw_line(self.R, self.Z, self.psi_norm, 1.0, 1)
+            x_psi, y_psi = draw_line(self.R, self.Z, self.psi_norm, 1.0, 1)
             self.main_sep_pts = np.insert(np.column_stack((x_psi, y_psi)), 0, self.xpt, axis=0)
             self.main_sep_line = LineString(self.main_sep_pts[:-1])
             self.main_sep_line_closed = LineString(self.main_sep_pts)
 
-            entire_sep_pts = np.vstack((ib_div_pts, sep_pts[1:, :], ob_div_pts))
+            entire_sep_pts = np.vstack((self.ib_div_pts, self.sep_pts[1:, :], self.ob_div_pts))
             self.entire_sep_line = LineString(entire_sep_pts)
             # now clean up the lines by removing any points that are extremely close
             # to the x-point
@@ -276,7 +273,7 @@ class neutpy:
             # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(v))/2)
             if num_lines == 1:
                 # then we're definitely dealing with a surface inside the seperatrix
-                x, y = self.draw_line(self.R, self.Z, self.psi_norm, v, 0)
+                x, y = draw_line(self.R, self.Z, self.psi_norm, v, 0)
                 self.core_lines.append(LineString(np.column_stack((x[:-1], y[:-1]))))
             else:
                 # we need to find which of the surfaces is inside the seperatrix
@@ -284,7 +281,7 @@ class neutpy:
                         plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()[:num_lines]):
                     # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(v)[:num_lines]):
                     # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
-                    x, y = self.draw_line(self.R, self.Z, self.psi_norm, v, j)
+                    x, y = draw_line(self.R, self.Z, self.psi_norm, v, j)
                     if (np.amax(x) < np.amax(self.main_sep_pts[:, 0]) and \
                             np.amin(x) > np.amin(self.main_sep_pts[:, 0]) and \
                             np.amax(y) < np.amax(self.main_sep_pts[:, 1]) and \
@@ -304,7 +301,7 @@ class neutpy:
             num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()))
             if num_lines == 1:
                 # then we're definitely dealing with a surface inside the seperatrix
-                x, y = self.draw_line(self.R, self.Z, self.psi_norm, v, 0)
+                x, y = draw_line(self.R, self.Z, self.psi_norm, v, 0)
                 self.sol_lines.append(LineString(np.column_stack((x, y))))
             else:
                 # TODO:
@@ -313,8 +310,8 @@ class neutpy:
             # find intersection points with the wall
             int_pts = line.intersection(self.wall_line)
             # cut line at intersection points
-            cut_line = self.cut(line, line.project(int_pts[0], normalized=True))[1]
-            cut_line = self.cut(cut_line, cut_line.project(int_pts[1], normalized=True))[0]
+            cut_line = cut(line, line.project(int_pts[0], normalized=True))[1]
+            cut_line = cut(cut_line, cut_line.project(int_pts[1], normalized=True))[0]
             self.sol_lines_cut.append(cut_line)
 
         # add wall intersection points from divertor legs and sol lines to wall_line.
@@ -335,13 +332,13 @@ class neutpy:
         # for some reason, union freaks out when I try to do inboard and outboard
         # at the same time.
         for num, line in enumerate(self.sol_lines):
-            union = self.wall_line.union(self.cut(line, 0.5)[0])
+            union = self.wall_line.union(cut(line, 0.5)[0])
             result = [geom for geom in polygonize(union)][0]
             self.wall_line = LineString(result.exterior.coords)
 
         # add sol line intersection points on outboard side
         for num, line in enumerate(self.sol_lines):
-            union = self.wall_line.union(self.cut(line, 0.5)[1])
+            union = self.wall_line.union(cut(line, 0.5)[1])
             result = [geom for geom in polygonize(union)][0]
             self.wall_line = LineString(result.exterior.coords)
 
@@ -358,21 +355,21 @@ class neutpy:
                     plt.contour(self.R, self.Z, self.psi_norm, [.99]).collections[0].get_paths()[:num_lines]):
                 # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.99)[:num_lines]):
                 # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
-                x, y = self.draw_line(self.R, self.Z, self.psi_norm, 0.99, j)
+                x, y = draw_line(self.R, self.Z, self.psi_norm, 0.99, j)
                 if (np.amax(y) < np.amin(self.main_sep_pts[:, 1])):
                     # then it's a pfr flux surface, might need to add additional checks later
                     pfr_line_raw = LineString(np.column_stack((x, y)))
                     # find cut points
                     cut_pt1 = pfr_line_raw.intersection(self.wall_line)[0]
                     dist1 = pfr_line_raw.project(cut_pt1, normalized=True)
-                    cutline_temp = self.cut(pfr_line_raw, dist1)[1]
+                    cutline_temp = cut(pfr_line_raw, dist1)[1]
 
                     # reverse line point order so we can reliably find the second intersection point
                     cutline_temp_rev = LineString(np.flipud(np.asarray(cutline_temp.xy).T))
 
                     cut_pt2 = cutline_temp_rev.intersection(self.wall_line)
                     dist2 = cutline_temp_rev.project(cut_pt2, normalized=True)
-                    cutline_final_rev = self.cut(cutline_temp_rev, dist2)[1]
+                    cutline_final_rev = cut(cutline_temp_rev, dist2)[1]
 
                     # reverse again for final pfr flux line
                     pfr_flux_line = LineString(np.flipud(np.asarray(cutline_final_rev.xy).T))
@@ -380,12 +377,12 @@ class neutpy:
                     # add pfr_line intersection points on inboard side
                     # for some reason, union freaks out when I try to do inboard and outboard
                     # at the same time.
-                    union = self.wall_line.union(self.cut(pfr_line_raw, 0.5)[0])
+                    union = self.wall_line.union(cut(pfr_line_raw, 0.5)[0])
                     result = [geom for geom in polygonize(union)][0]
                     self.wall_line = LineString(result.exterior.coords)
 
                     # add pfr line intersection points on outboard side
-                    union = self.wall_line.union(self.cut(pfr_line_raw, 0.5)[1])
+                    union = self.wall_line.union(cut(pfr_line_raw, 0.5)[1])
                     result = [geom for geom in polygonize(union)][0]
                     self.wall_line = LineString(result.exterior.coords)
 
@@ -396,8 +393,8 @@ class neutpy:
                     # ob_int_pt = self.ob_div_line.intersection(self.wall_line)
                     wall_start_pos = np.where((wall_pts == cut_pt2).all(axis=1))[0][0]
                     wall_line_rolled = LineString(np.roll(wall_pts, -wall_start_pos, axis=0))
-                    wall_line_cut_pfr = self.cut(wall_line_rolled,
-                                                 wall_line_rolled.project(cut_pt1, normalized=True))[0]
+                    wall_line_cut_pfr = cut(wall_line_rolled,
+                                            wall_line_rolled.project(cut_pt1, normalized=True))[0]
 
                     # create LineString with pfr line and section of wall line
                     self.pfr_line = linemerge((pfr_flux_line, wall_line_cut_pfr))
@@ -460,7 +457,7 @@ class neutpy:
 
             if num_lines == 1:
                 # then we're definitely dealing with a surface inside the seperatrix
-                x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, 0)
+                x, y = draw_line(self.R, self.Z, self.psi_norm, psi_val, 0)
                 surf = LineString(np.column_stack((x, y)))
             else:
                 # we need to find which of the surfaces is inside the seperatrix
@@ -468,7 +465,7 @@ class neutpy:
                         plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()[:num_lines]):
                     # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
                     # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
-                    x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
+                    x, y = draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
                     if (np.amax(x) < np.amax(self.main_sep_pts[:, 0]) and \
                             np.amin(x) > np.amin(self.main_sep_pts[:, 0]) and \
                             np.amax(y) < np.amax(self.main_sep_pts[:, 1]) and \
@@ -508,14 +505,14 @@ class neutpy:
         # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val))/2)
         if num_lines == 1:
             # then we're definitely dealing with a surface inside the seperatrix
-            x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, 0)
+            x, y = draw_line(self.R, self.Z, self.psi_norm, psi_val, 0)
         else:
             # we need to find which of the surfaces is inside the seperatrix
             for j, line in enumerate(
                     plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()[:num_lines]):
                 # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
                 # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
-                x, y = self.draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
+                x, y = draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
                 if (np.amax(x) < np.amax(self.main_sep_pts[:, 0]) and \
                         np.amin(x) > np.amin(self.main_sep_pts[:, 0]) and \
                         np.amax(y) < np.amax(self.main_sep_pts[:, 1]) and \
@@ -835,8 +832,8 @@ class neutpy:
         ob_int_pt = self.ob_div_line.intersection(self.wall_line)
         wall_start_pos = np.where((wall_pts == ib_int_pt).all(axis=1))[0][0]
         wall_line_rolled = LineString(np.roll(wall_pts, -wall_start_pos, axis=0))
-        wall_line_cut = self.cut(wall_line_rolled,
-                                 wall_line_rolled.project(ob_int_pt, normalized=True))[0]
+        wall_line_cut = cut(wall_line_rolled,
+                            wall_line_rolled.project(ob_int_pt, normalized=True))[0]
         # add points to wall line for the purpose of getting n, T along the wall. These points
         # won't be added to the main wall line or included in the triangulation.
         # for i, v in enumerate(np.linspace(0, 1, 300)):
@@ -937,10 +934,9 @@ class neutpy:
         # GET POINTS FOR TRIANGULATION
         # main seperatrix
 
-        print 'self.core_pol_pts = ', self.core_pol_pts
-        print 'self.ib_div_pol_pts = ', self.ib_div_pol_pts
-        print 'self.ob_div_pol_pts = ', self.ob_div_pol_pts
-        print 'self.core_pol_pts = ', self.core_pol_pts
+        print 'Number of poloidal points in core: ', self.core_pol_pts
+        print 'Number of inbooard poloidal points at the divertor: ', self.ib_div_pol_pts
+        print 'Number of outboard poloidal points at the divertor', self.ob_div_pol_pts
 
         sep_pts = np.zeros((self.core_pol_pts, 2))
         for i, v in enumerate(np.linspace(0, 1, self.core_pol_pts, endpoint=False)):
@@ -1040,8 +1036,8 @@ class neutpy:
         all_segs_unique = all_segs_unique.reshape(-1, 2)
 
         # # OUTPUT .poly FILE AND RUN TRIANGLE PROGRAM
-        open('exp_mesh.poly', 'w').close()
-        outfile = open('exp_mesh.poly', 'ab')
+        open('tmp/exp_mesh.poly', 'w').close()
+        outfile = open('tmp/exp_mesh.poly', 'ab')
         filepath = os.path.realpath(outfile.name)
         np.savetxt(outfile,
                    np.array([all_pts_unique.shape[0], 2, 0, 0])[None],
@@ -1100,9 +1096,9 @@ class neutpy:
         # # READ TRIANGLE OUTPUT
 
         # # DECLARE FILE PATHS
-        nodepath = os.getcwd() + '/exp_mesh.1.node'
-        elepath = os.getcwd() + '/exp_mesh.1.ele'
-        neighpath = os.getcwd() + '/exp_mesh.1.neigh'
+        nodepath = os.getcwd() + '/tmp/exp_mesh.1.node'
+        elepath = os.getcwd() + '/tmp/exp_mesh.1.ele'
+        neighpath = os.getcwd() + '/tmp/exp_mesh.1.neigh'
 
         # # GET NODE DATA
         with open(nodepath, 'r') as node:
@@ -1183,7 +1179,7 @@ class neutpy:
         cell1_ctr_y = (point1_y + point2_y + point3_y) / 3
 
         # # CALCULATE ANGLE BY WHICH TO ROTATE THE FIRST CELL WHEN PLOTTING
-        cell1_theta0 = degrees(self.getangle([point3_x, point3_y], [point1_x, point1_y]))
+        cell1_theta0 = degrees(getangle([point3_x, point3_y], [point1_x, point1_y]))
 
         # # GET VALUES TO ORIENT THE FIRST CELL WHEN PLOTTING
         point1_x = nodesx[triangles[0, 0]]
@@ -1197,7 +1193,7 @@ class neutpy:
         cell1_ctr_y = (point1_y + point2_y + point3_y) / 3
 
         # # CALCULATE ANGLE BY WHICH TO ROTATE THE FIRST CELL WHEN PLOTTING
-        cell1_theta0 = degrees(self.getangle([point3_x, point3_y], [point1_x, point1_y]))
+        cell1_theta0 = degrees(getangle([point3_x, point3_y], [point1_x, point1_y]))
 
         # # CALCULATE MID POINTS OF TRIANGLES, AS WELL AS MIDPOINTS FOR EACH FACE
         ptsx = np.zeros((nTri, 3))
@@ -1235,9 +1231,9 @@ class neutpy:
 
         for index, nei in enumerate(neighbors):
             # for each face of the cell, find the mid-point and check if it falls in line
-            side1inline = self.isinline(side1_midpt[index], self.core_ring)
-            side2inline = self.isinline(side2_midpt[index], self.core_ring)
-            side3inline = self.isinline(side3_midpt[index], self.core_ring)
+            side1inline = isinline(side1_midpt[index], self.core_ring)
+            side2inline = isinline(side2_midpt[index], self.core_ring)
+            side3inline = isinline(side3_midpt[index], self.core_ring)
 
             if side1inline or side2inline or side3inline:
                 nb = (nei == -1).sum()  # count number of times -1 occurs in nei
@@ -1284,9 +1280,9 @@ class neutpy:
 
         for index, nei in enumerate(neighbors):
             # for each face of the cell, find the mid-point and check if it falls in line
-            side1inline = self.isinline(side1_midpt[index], self.wall_ring)
-            side2inline = self.isinline(side2_midpt[index], self.wall_ring)
-            side3inline = self.isinline(side3_midpt[index], self.wall_ring)
+            side1inline = isinline(side1_midpt[index], self.wall_ring)
+            side2inline = isinline(side2_midpt[index], self.wall_ring)
+            side3inline = isinline(side3_midpt[index], self.wall_ring)
 
             if side1inline or side2inline or side3inline:
                 nb = (nei == -1).sum()  # count number of times -1 occurs in nei
@@ -1387,69 +1383,13 @@ class neutpy:
             p1 = np.array([ptsx[i, 0], ptsy[i, 0]])
             p2 = np.array([ptsx[i, 1], ptsy[i, 1]])
             p3 = np.array([ptsx[i, 2], ptsy[i, 2]])
-            angles[i, 0] = self.getangle3ptsdeg(p1, p2, p3)
-            angles[i, 1] = self.getangle3ptsdeg(p2, p3, p1)
-            angles[i, 2] = self.getangle3ptsdeg(p3, p1, p2)
+            angles[i, 0] = getangle3ptsdeg(p1, p2, p3)
+            angles[i, 1] = getangle3ptsdeg(p2, p3, p1)
+            angles[i, 2] = getangle3ptsdeg(p3, p1, p2)
 
         # # WRITE NEUTPY JSON INPUT FILE!
         f = open(os.getcwd() + '/neutpy_in_generated.json', 'w')
         out_dict = {}
-        # out_dict['nCells'] = nTri
-        # out_dict['nPlasmReg'] = pcellcount
-        # out_dict['nWallSegm'] = wcellcount
-        # out_dict['iType'] = np.zeros(nTri + len(wallcells) + len(plasmacells))
-        # out_dict['awall'] = np.zeros(nTri + len(wallcells) + len(plasmacells))
-        # out_dict['zwall'] = np.zeros(nTri + len(wallcells) + len(plasmacells))
-        # out_dict['twall'] = np.zeros(nTri + len(wallcells) + len(plasmacells))
-        # out_dict['f_abs'] = np.zeros(nTri + len(wallcells) + len(plasmacells))
-        # out_dict['nSides'] = np.full(nTri + len(wallcells) + len(plasmacells), 3)
-        # out_dict['s_ext'] = np.full(nTri + len(wallcells) + len(plasmacells), 1.0E19)
-        # out_dict['adjCell'] = np.array([neighbors[i, :] for i in range(nTri)])
-        # out_dict['lsides'] = np.array([lsides[i, :] for i in range(nTri)])
-        # out_dict['angles'] = np.array([angles[i, :] for i in range(nTri)])
-        # out_dict['elecTemp'] = np.array(Te_tri)
-        # out_dict['elecDens'] = np.array(ne_tri)
-        # out_dict['ionTemp'] = np.array(Ti_tri)
-        # out_dict['ionDens'] = np.array(ni_tri)
-        # for i, wcell in enumerate(wallcells):
-        #     out_dict['iType'][wcell[0]] = 2
-        #     out_dict['nSides'][wcell[0]] = 1
-        #     out_dict['adjCell'][wcell[0]] = np.array((wcell[1], None, None))
-        #     out_dict['zwall'][wcell[0]] = 6
-        #     out_dict['awall'][wcell[0]] = 12
-        #     out_dict['twall'][wcell[0]] = wcell[4]
-        #
-        # for i, pcell in enumerate(plasmacells):
-        #     out_dict['iType'][pcell[0]] = 1
-        #     out_dict['nSides'][pcell[0]] = 1
-        #     out_dict['adjCell'][pcell[0]] = np.array((None, pcell[1], None))
-        #     out_dict['twall'][pcell[0]] = 5000
-        #     out_dict['alb_s'][pcell[0]] = 0
-        #     out_dict['alb_t'][pcell[0]] = 0
-        #     out_dict['s_ext'][pcell[0]] = 0
-        #
-        #
-        # out_dict['zion'] = 1
-        # out_dict['aion'] = 2
-        # out_dict['aneut'] = 2
-        # out_dict['tslow'] = 0.002
-        # out_dict['xsec_ioni'] = "janev"
-        # out_dict['xsec_ione'] = "janev"
-        # out_dict['xsec_cx'] = "janev"
-        # out_dict['xsec_el'] = "janev"
-        # out_dict['xsec_eln'] = "stacey_thomas"
-        # out_dict['xsec_rec'] = "stacey_thomas"
-        # out_dict['refmod_e'] = "stacey"
-        # out_dict['refmod_n'] = "stacey"
-        # out_dict['int_method'] = "midpoint"
-        # out_dict['phi_int_pts'] = 10
-        # out_dict['xi_int_pts'] = 10
-        # out_dict['make_bn_int'] = False
-        # out_dict['cell1_ctr_x'] = cell1_ctr_x
-        # out_dict['cell1_ctr_y'] = cell1_ctr_y
-        # out_dict['cell1_theta0'] = cell1_theta0
-
-        # create dictionary to pass to neutpy
         out_dict['nCells'] = nTri
         out_dict['nPlasmReg'] = pcellcount
         out_dict['nWallSegm'] = wcellcount
@@ -1494,58 +1434,17 @@ class neutpy:
 
         json.dump(out_dict, f, indent=4)
         f.close()
-        # TODO: This and the actual running of neutpy needs to be moved out so that one can pass in an input file.
-        self.read_neutpy_in(os.getcwd() + '/neutpy_in_generated.json')
 
-        time0 = time.time()
-        try:
-            self.cpu_cores
-        except:
-            self.cpu_cores = 1
-        self._run()
-        time1 = time.time()
-        minutes, seconds = divmod(time1 - time0, 60)
-        print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
-        # plot = neutpyplot(self.neutpy_inst)
-        self.nn_s_raw = self.neutpy_inst.cell_nn_s
-        self.nn_t_raw = self.neutpy_inst.cell_nn_t
-        self.nn_raw = self.nn_s_raw + self.nn_t_raw
-
-        self.iznrate_s_raw = self.neutpy_inst.cell_izn_rate_s
-        self.iznrate_t_raw = self.neutpy_inst.cell_izn_rate_t
-        self.iznrate_raw = self.iznrate_s_raw + self.iznrate_t_raw
-
-        # create output file
-        # the file contains R, Z coordinates and then the values of several calculated parameters
-        # at each of those points.
-
-        f = open('./outputs/' + self.neutpy_outfile, 'w')
-        f.write(('{:^18s}' * 8).format('R', 'Z', 'n_n_slow', 'n_n_thermal', 'n_n_total', 'izn_rate_slow',
-                                       'izn_rate_thermal', 'izn_rate_total'))
-        for i, pt in enumerate(self.midpts):
-            f.write(('\n' + '{:>18.5f}' * 2 + '{:>18.5E}' * 6).format(
-                self.midpts[i, 0],
-                self.midpts[i, 1],
-                self.nn_s_raw[i],
-                self.nn_t_raw[i],
-                self.nn_raw[i],
-                self.iznrate_s_raw[i],
-                self.iznrate_t_raw[i],
-                self.iznrate_raw[i]))
-        f.close()
-
-    def read_config(self, input_file, configFile="neutpy.conf"):
+    def read_config(self, input_file):
         """
         Read the configuration files when running neutpy without a mesh given
         :param infile: The input configuration file containing radial profiles and plasma magnetic field strength (in T)
         :type infile: str
-        :param configFile: The main neutpy configuration file
-        :type configFile: str
         """
         config = ConfigParser.RawConfigParser()
         inFile = ConfigParser.RawConfigParser()
 
-        config.read(configFile)
+        config.read(self.config_loc)
         inFile.read(input_file)
         # Collect configuration from main configuration file
 
@@ -1624,7 +1523,7 @@ class neutpy:
             self.refmod_n = l['refmod_n']
             self.cell1_ctr_x = l['cell1_ctr_x']
             self.cell1_ctr_y = l['cell1_ctr_y']
-            self.cell1_theta0 =  l['cell1_theta0']
+            self.cell1_theta0 = l['cell1_theta0']
         self.nCells_tot = self.nCells + self.nPlasmReg + self.nWallSegm
 
         # now we can do the same thing for the 1d and 2d arrays
@@ -1635,6 +1534,7 @@ class neutpy:
         self.awall = np.asarray(l['awall'])
         self.elecTemp = np.asarray(l['elecTemp'])
         self.ionTemp = np.asarray(l['ionTemp'])
+        """The Ion Temperature"""
         self.elecDens = np.asarray(l['elecDens'])
         self.ionDens = np.asarray(l['ionDens'])
         self.twall = np.asarray(l['twall'])
@@ -1651,6 +1551,15 @@ class neutpy:
         """
         Run NEUTPY
         """
+
+        # TODO: This and the actual running of neutpy needs to be moved out so that one can pass in an input file.
+        self.read_neutpy_in(os.getcwd() + '/neutpy_in_generated.json')
+
+        time0 = time.time()
+        try:
+            self.cpu_cores
+        except:
+            self.cpu_cores = 1
 
         cell_n_dict = {}
         cell_n_dict['i'] = self.ionDens[:self.nCells]
@@ -1798,8 +1707,38 @@ class neutpy:
         # compute ionization rates and densities
         self.izn_rate, self.nn = self.calc_neutral_dens(cell, face, self.T_coef, self.flux)
 
+        time1 = time.time()
+        minutes, seconds = divmod(time1 - time0, 60)
+        print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
+        self.nn_s_raw = self.cell_nn_s
+        self.nn_t_raw = self.cell_nn_t
+        self.nn_raw = self.nn_s_raw + self.nn_t_raw
+
+        self.iznrate_s_raw = self.cell_izn_rate_s
+        self.iznrate_t_raw = self.cell_izn_rate_t
+        self.iznrate_raw = self.iznrate_s_raw + self.iznrate_t_raw
+
         # write neutpy output files
         # self.write_outputs(cell)
+
+        # create output file
+        # the file contains R, Z coordinates and then the values of several calculated parameters
+        # at each of those points.
+
+        f = open('./outputs/' + self.neutpy_outfile, 'w')
+        f.write(('{:^18s}' * 8).format('R', 'Z', 'n_n_slow', 'n_n_thermal', 'n_n_total', 'izn_rate_slow',
+                                       'izn_rate_thermal', 'izn_rate_total'))
+        for i, pt in enumerate(self.midpts):
+            f.write(('\n' + '{:>18.5f}' * 2 + '{:>18.5E}' * 6).format(
+                self.midpts[i, 0],
+                self.midpts[i, 1],
+                self.nn_s_raw[i],
+                self.nn_t_raw[i],
+                self.nn_raw[i],
+                self.iznrate_s_raw[i],
+                self.iznrate_t_raw[i],
+                self.iznrate_raw[i]))
+        f.close()
 
     def calc_cell_geom(self):
         cell_area = np.zeros(self.nCells)
@@ -1951,7 +1890,6 @@ class neutpy:
             print "T_coef calculation running on %s cores." % cpu_cores
 
         result = pool.map(partial(coeff_calc, **kwargs), cord_list)
-        #result = pool.map(partial(coeff_calc), cord_list)
 
         # result = [(0, 0, 0, 0, 0)] * (self.nCells * 4 * 4)
 
@@ -2003,16 +1941,6 @@ class neutpy:
         T_coef = namedtuple('T_coef', T_coef_dict.keys())(*T_coef_dict.values())
 
         return T_coef
-
-    def listToFloatChecker(self, val, message):
-        if type(val) == np.ndarray:
-            if len(val) > 1:
-                raise ValueError(message)
-            else:
-                if self.verbose: warnings.warn("List value of len 1 found")
-                return val[0]
-        else:
-            return val
 
     def solve_matrix(self, face, cell, T_coef):
         # calculate size of matrix and initialize
@@ -2099,30 +2027,30 @@ class neutpy:
                             # matrix: from slow group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_s)
-                            m_data.append(self.listToFloatChecker(uncoll_ss + coll_ss,
-                                                                  "Multi-dimensional m_data entry for uncoll_ss + coll_ss at row_s %s, col_s %s" % (
-                                                                  M_row_s, M_col_s)))
+                            m_data.append(listToFloatChecker(uncoll_ss + coll_ss,
+                                                             "Multi-dimensional m_data entry for uncoll_ss + coll_ss at row_s %s, col_s %s" % (
+                                                                 M_row_s, M_col_s), verbose=self.verbose))
 
                             # matrix: from thermal group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_t)
-                            m_data.append(self.listToFloatChecker(coll_ts,
-                                                                  "Multi-dimensional m_data entry for coll_ts at row_s %s, col_t %s" % (
-                                                                  M_row_s, M_col_t)))
+                            m_data.append(listToFloatChecker(coll_ts,
+                                                             "Multi-dimensional m_data entry for coll_ts at row_s %s, col_t %s" % (
+                                                                 M_row_s, M_col_t), verbose=self.verbose))
 
                             # matrix: from slow group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_s)
-                            m_data.append(self.listToFloatChecker(coll_st,
-                                                                  "Multi-dimensional m_data entry for coll_st at row_t %s, col_s %s" % (
-                                                                  M_row_t, M_col_s)))
+                            m_data.append(listToFloatChecker(coll_st,
+                                                             "Multi-dimensional m_data entry for coll_st at row_t %s, col_s %s" % (
+                                                                 M_row_t, M_col_s), verbose=self.verbose))
 
                             # matrix: from thermal group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_t)
-                            m_data.append(self.listToFloatChecker(uncoll_tt + coll_tt,
-                                                                  "Multi-dimensional m_data entry for uncoll_tt + coll_tt at row_t %s, col_t %s" % (
-                                                                  M_row_t, M_col_t)))
+                            m_data.append(listToFloatChecker(uncoll_tt + coll_tt,
+                                                             "Multi-dimensional m_data entry for uncoll_tt + coll_tt at row_t %s, col_t %s" % (
+                                                                 M_row_t, M_col_t), verbose=self.verbose))
 
                     # FROM PLASMA CORE
                     elif fromcell_type == 1:  # if fromcell is plasma core cell
@@ -2159,30 +2087,30 @@ class neutpy:
                             # matrix: from slow group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_s)
-                            m_data.append(self.listToFloatChecker(uncoll_ss + coll_ss,
-                                                                  "Multi-dimensional m_data entry for uncoll_ss + coll_ss at row_s %s, col_s %s" % (
-                                                                  M_row_s, M_col_s)))
+                            m_data.append(listToFloatChecker(uncoll_ss + coll_ss,
+                                                             "Multi-dimensional m_data entry for uncoll_ss + coll_ss at row_s %s, col_s %s" % (
+                                                                 M_row_s, M_col_s), verbose=self.verbose))
 
                             # matrix: from thermal group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_t)
-                            m_data.append(self.listToFloatChecker(coll_ts,
-                                                                  "Multi-dimensional m_data entry for coll_ts at row_s %s, col_t %s" % (
-                                                                  M_row_s, M_col_t)))
+                            m_data.append(listToFloatChecker(coll_ts,
+                                                             "Multi-dimensional m_data entry for coll_ts at row_s %s, col_t %s" % (
+                                                                 M_row_s, M_col_t), verbose=self.verbose))
 
                             # matrix: from slow group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_s)
-                            m_data.append(self.listToFloatChecker(coll_st,
-                                                                  "Multi-dimensional m_data entry for coll_st at row_t %s, col_s %s" % (
-                                                                  M_row_t, M_col_s)))
+                            m_data.append(listToFloatChecker(coll_st,
+                                                             "Multi-dimensional m_data entry for coll_st at row_t %s, col_s %s" % (
+                                                                 M_row_t, M_col_s), verbose=self.verbose))
 
                             # matrix: from thermal group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_t)
-                            m_data.append(self.listToFloatChecker(uncoll_tt + coll_tt,
-                                                                  "Multi-dimensional m_data entry for uncoll_tt + coll_tt at row_t %s, col_t %s" % (
-                                                                  M_row_t, M_col_t)))
+                            m_data.append(listToFloatChecker(uncoll_tt + coll_tt,
+                                                             "Multi-dimensional m_data entry for uncoll_tt + coll_tt at row_t %s, col_t %s" % (
+                                                                 M_row_t, M_col_t), verbose=self.verbose))
 
                     # FROM WALL
                     elif fromcell_type == 2:  # if fromcell is wall cell
@@ -2231,56 +2159,35 @@ class neutpy:
                         # thermal neutrals can hit the wall, reflect as thermal neutrals, and then have a collision and stay thermal afterward
                         coll_refl_tt = face.refl.n.t[face_loc] * (1 - T_coef.sum_t[i, k]) * \
                                        face.ci.t[i, k] * (
-                                                   cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
-                                               i] * cell.Pi.t[i] * face.lfrac[i, j])
+                                               cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
+                                           i] * cell.Pi.t[i] * face.lfrac[i, j])
                         # thermal neutrals can hit the wall, reflect as thermal neutrals, but they won't reenter the slow group
                         coll_refl_ts = 0
                         # slow neutrals can hit the wall, reflect as slow neutrals, and have a collision to enter and stay in the thermal group
 
                         coll_refl_st = face.refl.n.s[face_loc] * (1 - T_coef.sum_s[i, k]) * \
                                        face.ci.s[i, k] * (
-                                                   cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
-                                               i] * cell.Pi.t[i] * face.lfrac[i, j])
+                                               cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
+                                           i] * cell.Pi.t[i] * face.lfrac[i, j])
 
                         # slow neutrals can hit the wall, be reemitted as slow, but a collision removes them from the slow group
                         coll_reem_ss = 0
 
-                        # print 'face.ci.s[i, k] = ',face.ci.s[i, k]
-                        # print 'cell.P0i.t[i] = ',cell.P0i.t[i]
-                        # print 'face.lfrac[i, j] = ',face.lfrac[i, j]
-                        # print 'cell.ci.t[i] = ',cell.ci.t[i]
-                        # print 'cell.Pi.t[i] = ',cell.Pi.t[i]
-                        # print
-                        # print
-                        # print 'face_loc = ',face_loc
-                        # print 'face.refl.n.s[face_loc] = ',face.refl.n.s[face_loc]
-                        # print 'face.f_abs[face_loc] = ',face.f_abs[face_loc]
-                        #
-                        # print 'T_coef.sum_s[i, k] = ',T_coef.sum_s
-                        #
-                        # #sys.exit()
-                        # print 'face.ci.s[i, k] = ',face.ci.s[i, k]
-                        # print 'cell.P0i.t[i] = ',cell.P0i.t[i]
-                        # print 'face.lfrac[i, j] = ',face.lfrac[i, j]
-                        # print 'cell.P0i.t[i] = ',cell.P0i.t[i]
-                        # print 'cell.ci.t[i] = ',cell.ci.t[i]
-                        # print 'face.lfrac[i, j] = ',face.lfrac[i, j]
-
                         # thermal neutrals can hit the wall, be reemitted as slow, and then collide to enter and stay in the thermal group
                         coll_reem_tt = (1 - face.refl.n.t[face_loc]) * (1 - face.f_abs[face_loc]) * (
-                                    1 - T_coef.sum_s[i, k]) * \
+                                1 - T_coef.sum_s[i, k]) * \
                                        face.ci.s[i, k] * (
-                                                   cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
-                                               i] * cell.Pi.t[i] * face.lfrac[i, j])
+                                               cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
+                                           i] * cell.Pi.t[i] * face.lfrac[i, j])
                         # thermal neutrals can hit the wall, be reemitted as slow, but a collision removes them from the slow group
                         coll_reem_ts = 0
 
                         # slow neutrals can hit the wall, be reemitted as slow, and then collide to enter and stay in the thermal group
                         coll_reem_st = (1 - face.refl.n.s[face_loc]) * (1 - face.f_abs[face_loc]) * (
-                                    1 - T_coef.sum_s[i, k]) * \
+                                1 - T_coef.sum_s[i, k]) * \
                                        face.ci.s[i, k] * (
-                                                   cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
-                                               i] * cell.Pi.t[i] * face.lfrac[i, j])
+                                               cell.P0i.t[i] * face.lfrac[i, j] + (1 - cell.P0i.t[i]) * cell.ci.t[
+                                           i] * cell.Pi.t[i] * face.lfrac[i, j])
 
                         if m_sparse == 0 or m_sparse == 2:
                             # matrix: from slow group into slow group
@@ -2296,33 +2203,33 @@ class neutpy:
                             m_row.append(M_row_s)
                             m_col.append(M_col_s)
                             m_data.append(
-                                self.listToFloatChecker(uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss,
-                                                        "Multi-dimensional m_data entry for uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss"
-                                                        " at row_s %s, col_s %s" % (M_row_s, M_col_s)))
+                                listToFloatChecker(uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss,
+                                                   "Multi-dimensional m_data entry for uncoll_refl_ss + uncoll_reem_ss + coll_refl_ss + coll_reem_ss"
+                                                   " at row_s %s, col_s %s" % (M_row_s, M_col_s), verbose=self.verbose))
 
                             # matrix: from thermal group into slow group
                             m_row.append(M_row_s)
                             m_col.append(M_col_t)
                             m_data.append(
-                                self.listToFloatChecker(uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts,
-                                                        "Multi-dimensional m_data entry for uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts"
-                                                        " at row_s %s, col_t %s" % (M_row_s, M_col_t)))
+                                listToFloatChecker(uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts,
+                                                   "Multi-dimensional m_data entry for uncoll_refl_ts + uncoll_reem_ts + coll_refl_ts + coll_reem_ts"
+                                                   " at row_s %s, col_t %s" % (M_row_s, M_col_t), verbose=self.verbose))
 
                             # matrix: from slow group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_s)
                             m_data.append(
-                                self.listToFloatChecker(uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st,
-                                                        "Multi-dimensional m_data entry for uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st"
-                                                        " at row_t %s, col_s %s" % (M_row_t, M_col_s)))
+                                listToFloatChecker(uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st,
+                                                   "Multi-dimensional m_data entry for uncoll_refl_st + uncoll_reem_st + coll_refl_st + coll_reem_st"
+                                                   " at row_t %s, col_s %s" % (M_row_t, M_col_s), verbose=self.verbose))
 
                             # matrix: from thermal group into thermal group
                             m_row.append(M_row_t)
                             m_col.append(M_col_t)
                             m_data.append(
-                                self.listToFloatChecker(uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt,
-                                                        "Multi-dimensional m_data entry for uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt"
-                                                        " at row_t %s, col_t %s" % (M_row_t, M_col_t)))
+                                listToFloatChecker(uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt,
+                                                   "Multi-dimensional m_data entry for uncoll_refl_tt + uncoll_reem_tt + coll_refl_tt + coll_reem_tt"
+                                                   " at row_t %s, col_t %s" % (M_row_t, M_col_t), verbose=self.verbose))
 
         # create source vector
 
@@ -2360,11 +2267,11 @@ class neutpy:
                     source[i] = source[i] + incoming_flux * 0
                     # add collided thermal flux from slow external source
                     source[i + num_fluxes] = source[i + num_fluxes] + incoming_flux * (
-                                1 - T_coef.sum_s[face_from_loc]) * \
+                            1 - T_coef.sum_s[face_from_loc]) * \
                                              face.ci.s[face_from_loc] * (
-                                                         cell.P0i.t[cell_io] * face.lfrac[face_to_loc] + (
-                                                             1 - cell.P0i.t[cell_io]) * cell.ci.t[cell_io] * cell.Pi.t[
-                                                             cell_io] * face.lfrac[face_to_loc])
+                                                     cell.P0i.t[cell_io] * face.lfrac[face_to_loc] + (
+                                                     1 - cell.P0i.t[cell_io]) * cell.ci.t[cell_io] * cell.Pi.t[
+                                                         cell_io] * face.lfrac[face_to_loc])
 
             if group == 1:
                 # ADD CONTRIBUTION FROM VOLUMETRIC SOURCE (I.E. RECOMBINATION)
@@ -2391,7 +2298,7 @@ class neutpy:
 
                         # calculate uncollided source to cell_to
                         T_coef_loc = np.where((T_coef.via_cell == cell_io) & (T_coef.from_cell == cell_from) & (
-                                    T_coef.to_cell == cell_to))
+                                T_coef.to_cell == cell_to))
                         face_from_loc = T_coef_loc[:2]
                         face_to_loc = [T_coef_loc[0], T_coef_loc[-1]]
 
@@ -2400,7 +2307,7 @@ class neutpy:
                         # calculate collided source to cell_to
                         source[i] = source[i] + incoming_flux * (1.0 - T_coef.sum_t[face_from_loc]) * \
                                     face.ci.t[face_from_loc] * (cell.P0i.t[cell_io] * face.lfrac[face_to_loc] + (
-                                    1.0 - cell.P0i.t[cell_io]) * cell.ci.t[cell_io] * cell.Pi.t[cell_io] * face.lfrac[
+                                1.0 - cell.P0i.t[cell_io]) * cell.ci.t[cell_io] * cell.Pi.t[cell_io] * face.lfrac[
                                                                     face_to_loc])
                         if incoming_flux < 0:
                             print 'incoming flux less than zero'
@@ -2479,6 +2386,17 @@ class neutpy:
         return flux
 
     def calc_neutral_dens(self, cell, face, T_coef, flux):
+        """
+        Calculates the neutral density
+        Args:
+            cell:
+            face:
+            T_coef:
+            flux:
+
+        Returns:
+
+        """
         # first calculate the fluxes into cells from the fluxes leaving the cells
 
         # calculate ionization rate
@@ -2489,11 +2407,11 @@ class neutpy:
             for k in range(0, self.nSides[i]):
                 self.cell_izn_rate_s[i] = self.cell_izn_rate_s[i] + flux.inc.s[i, k] * (1.0 - T_coef.sum_s[i, k]) * \
                                           ((1.0 - face.ci.s[i, k]) + face.ci.s[i, k] * (1.0 - cell.ci.t[i]) * (
-                                                      1.0 - cell.P0i.t[i]) / (1 - cell.ci.t[i] * (1.0 - cell.P0i.t[i])))
+                                                  1.0 - cell.P0i.t[i]) / (1 - cell.ci.t[i] * (1.0 - cell.P0i.t[i])))
 
                 self.cell_izn_rate_t[i] = self.cell_izn_rate_t[i] + flux.inc.t[i, k] * (1.0 - T_coef.sum_t[i, k]) * \
                                           ((1.0 - face.ci.t[i, k]) + face.ci.t[i, k] * (1.0 - cell.ci.t[i]) * (
-                                                      1.0 - cell.P0i.t[i]) / (1 - cell.ci.t[i] * (1.0 - cell.P0i.t[i])))
+                                                  1.0 - cell.P0i.t[i]) / (1 - cell.ci.t[i] * (1.0 - cell.P0i.t[i])))
 
             # add contribution to ionization rate from volumetric recombination within the cell
             self.cell_izn_rate_s[i] = self.cell_izn_rate_s[
@@ -2501,7 +2419,7 @@ class neutpy:
             self.cell_izn_rate_t[i] = self.cell_izn_rate_t[i] + 0 * (1 - cell.P0i.t[i]) * cell.area[i] * cell.n.i[i] * \
                                       cell.sv.rec[i] * \
                                       (1.0 - cell.ci.t[i] + cell.ci.t[i] * (1.0 - cell.ci.t[i]) * (
-                                                  1 - cell.P0i.t[i]) / (1.0 - cell.ci.t[i] * (cell.P0i.t[i])))
+                                              1 - cell.P0i.t[i]) / (1.0 - cell.ci.t[i] * (cell.P0i.t[i])))
 
         self.cell_izn_rate = self.cell_izn_rate_s + self.cell_izn_rate_t
 
@@ -2550,63 +2468,20 @@ class neutpy:
         # for i, (v1, v2) in enumerate(zip(flux_in_tot, flux_out_tot)):
         # print i, np.sum(v1), np.sum(v2)+cell_izn_rate[i]
 
-    @staticmethod
-    def cut(line, distance):
-        """Cuts a shapely line in two at a distance(normalized) from its starting point"""
-        if distance <= 0.0 or distance >= 1.0:
-            return [LineString(line)]
-        coords = list(line.coords)
-        for i, p in enumerate(coords):
-            pd = line.project(Point(p), normalized=True)
-            if pd == distance:
-                return [LineString(coords[:i + 1]), LineString(coords[i:])]
-            if pd > distance:
-                cp = line.interpolate(distance, normalized=True)
-                return [
-                    LineString(coords[:i] + [(cp.x, cp.y)]),
-                    LineString([(cp.x, cp.y)] + coords[i:])]
+    def set_config(self, f):
+        """
+        Set the configuration file.
+        Args:
+            f (str): The configuration filename with directory
 
-    @staticmethod
-    def isinline(pt, line):
-        pt_s = Point(pt)
-        dist = line.distance(pt_s)
-        if dist < 1E-6:
-            return True
-        else:
-            return False
-
-    @staticmethod
-    def getangle(p1, p2):
-        if isinstance(p1, Point) and isinstance(p2, Point):
-            p1 = [p1.coords.xy[0][0], p1.coords.xy[1][0]]
-            p2 = [p2.coords.xy[0][0], p2.coords.xy[1][0]]
-        p1 = np.asarray(p1)
-        p1 = np.reshape(p1, (-1, 2))
-        p2 = np.asarray(p2)
-        p2 = np.reshape(p2, (-1, 2))
-        theta = np.arctan2(p1[:, 1] - p2[:, 1], p1[:, 0] - p2[:, 0])
-        theta_mod = np.where(theta < 0, theta + pi,
-                             theta)  # makes it so the angle is always measured counterclockwise from the horizontal
-        return theta
-
-    @staticmethod
-    def getangle3ptsdeg(p1, p2, p3):
-        a = sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
-        b = sqrt((p2[0] - p3[0]) ** 2 + (p2[1] - p3[1]) ** 2)
-        c = sqrt((p1[0] - p3[0]) ** 2 + (p1[1] - p3[1]) ** 2)
-        theta = degrees(acos((c ** 2 - a ** 2 - b ** 2) / (-2 * a * b)))  # returns degree in radians
-        return theta
-
-    @staticmethod
-    def draw_line(R, Z, array, val, pathnum):
-        res = plt.contour(R, Z, array, [val]).collections[0].get_paths()[pathnum]
-        # res = cntr.contour(R, Z, array).trace(val)[pathnum]
-        x = res.vertices[:, 0]
-        y = res.vertices[:, 1]
-        return x, y
+        Returns:
+            neutpy : The neutpy instance
+        """
+        self.config_loc = f
+        return self
 
 
 
 if __name__ == "__main__":
     neuts = neutpy()
-    neuts.from_file("inputs/144977_3000/toneutprep")
+    neuts.from_file("inputs/144977_3000/toneutpy")

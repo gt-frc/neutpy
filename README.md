@@ -74,7 +74,7 @@ Activate it
 
 Install packages
 
-`$ pip install -r requirements.txt --user`
+`$ pip install -r requirements.txt`
 
 **Usage**
 

@@ -7,14 +7,11 @@ from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
-from scipy import integrate
 import sys
-from math import pi
+from math import pi, sqrt, degrees, acos
 import os
-import re
 import pandas as pd
-from math import sin, exp, sqrt, acos, degrees
-from collections import namedtuple
+import warnings
 from scipy.constants import physical_constants
 from shapely.geometry import LineString, Point
 
@@ -70,328 +67,6 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=0, bar_lengt
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
 
     sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix))
-
-
-
-def calc_Ki3(x):
-    return integrate.quad(lambda theta: (sin(theta)) ** 2 * exp(-x / sin(theta)), 0, pi / 2)[0]
-
-
-def calc_e_reflect(e0, am1, am2, z1, z2):
-    """
-    Calculates the energy reflection coefficient
-    :param e0:
-    :param am1:
-    :param am2:
-    :param z1:
-    :param z2:
-    :return:
-    """
-
-    e = 2.71828
-
-    ae = np.array([[0.001445, 0.2058, 0.4222, 0.4484, 0.6831],
-                   [404.7, 3.848, 3.092, 27.16, 27.16],
-                   [73.73, 19.07, 13.17, 15.66, 15.66],
-                   [0.6519, 0.4872, 0.5393, 0.6598, 0.6598],
-                   [4.66, 15.13, 4.464, 7.967, 7.967],
-                   [1.971, 1.638, 1.877, 1.822, 1.822]])
-
-    mu = am2 / am1
-
-    zfactr = 1.0 / (z1 * z2 * np.sqrt(z1 ** 0.67 + z2 ** 0.67))
-    epsln = 32.55 * mu * zfactr * e0 / (1. + mu)
-    if mu == 1:
-        col = 0
-    elif mu == 3:
-        col = 1
-    elif 6.0 <= mu <= 7.0:
-        col = 2
-    elif 12.0 <= mu <= 15.0:
-        col = 3
-    elif mu >= 20.0:
-        col = 4
-
-    r_e = ae[0, col] * np.log(ae[1, col] * epsln + e) / \
-          (1 + ae[2, col] * epsln ** ae[3, col] + ae[4, col] * epsln ** ae[5, col])
-
-    return r_e
-
-
-def calc_n_reflect(e0, am1, am2, z1, z2):
-    """
-
-    :param e0:
-    :param am1:
-    :param am2:
-    :param z1:
-    :param z2:
-    :return:
-    """
-    e = 2.71828
-
-    an = np.array([[0.02129, 0.36800, 0.51730, 0.61920, 0.82500],
-                   [16.39000, 2.98500, 2.54900, 20.01000, 21.41000],
-                   [26.39000, 7.12200, 5.32500, 8.92200, 8.60600],
-                   [0.91310, 0.58020, 0.57190, 0.66690, 0.64250],
-                   [6.24900, 4.21100, 1.09400, 1.86400, 1.90700],
-                   [2.55000, 1.59700, 1.93300, 1.89900, 1.92700]])
-
-    mu = am2 / am1
-    zfactr = 1.0 / (z1 * z2 * sqrt(z1 ** 0.67 + z2 ** 0.67))
-    epsln = 32.55 * mu * zfactr * e0 / (1. + mu)
-
-    if mu == 1:
-        col = 0
-    elif mu == 3:
-        col = 1
-    elif 6.0 <= mu <= 7.0:
-        col = 2
-    elif 12.0 <= mu <= 15.0:
-        col = 3
-    elif mu >= 20.0:
-        col = 4
-
-    r_n = an[0, col] * np.log(an[1, col] * epsln + e) / \
-          (1 + an[2, col] * epsln ** an[3, col] + an[4, col] * epsln ** an[5, col])
-    return r_n
-
-
-def calc_mfp(Tn, n, sv, en_grp):
-    """
-        Calculates the mean free path of a neutral particle through a background plasma
-
-    :param Tn:
-    :param n:
-    :param sv:
-    :param en_grp:
-    :return:
-    """
-    # TODO: get this information from input data
-    mn = 2*m_p
-
-    Tn = Tn.s if en_grp == 'slow' else Tn.t
-    svcx = sv.cx_s if en_grp == 'slow' else sv.cx_t
-    svel = sv.el_s if en_grp == 'slow' else sv.el_t
-
-    # reshape ne and ni if necessary, i.e. when calculating face values
-    if Tn.ndim == 2:
-        ne = np.repeat(n.e.reshape(-1, 1), Tn.shape[1], axis=1)
-        ni = np.repeat(n.i.reshape(-1, 1), Tn.shape[1], axis=1)
-        svion = np.repeat(sv.ion.reshape(-1, 1), Tn.shape[1], axis=1)
-    else:
-        ne = n.e
-        ni = n.i
-        svion = sv.ion
-
-    vn = np.sqrt(2 * Tn * 1E3 * 1.6021E-19 / mn)
-    mfp = vn / (ne * svion + ni * svcx + ni * svel)
-
-    # test if there are any NaN's in the array before returning
-    if np.any(np.isnan(mfp)):
-        array_type = 'cell' if Tn.ndim == 2 else 'face'
-        nan_locs = np.argwhere(np.isnan(mfp))
-        print 'an NAN was found in the '+array_type+' '+en_grp+' mfp array'
-        print 'indices:'
-        print nan_locs
-        print
-        print 'vn at those indices'
-        print vn[nan_locs]
-        print
-        print 'ne at those indices'
-        print ne[nan_locs]
-        print
-        print 'ni at those indices'
-        print svion[nan_locs]
-        print
-        print 'svion at those indices'
-        print vn[nan_locs]
-        print
-        print 'svcx at those indices'
-        print svcx[nan_locs]
-        print
-        print 'svel at those indices'
-        print svel[nan_locs]
-        print
-        print 'mfp array'
-        print mfp
-        print 'stopping.'
-        sys.exit()
-
-
-    return mfp
-
-
-def calc_c_i(n, sv, en_grp):
-    """
-
-    :param n:
-    :param sv:
-    :param en_grp:
-    :return:
-    """
-
-    svcx = sv.cx_s if en_grp == 'slow' else sv.cx_t
-    svel = sv.el_s if en_grp == 'slow' else sv.el_t
-
-    # reshape ne and ni if necessary, i.e. when calculating face values
-    if svcx.ndim == 2:
-        ne = np.repeat(n.e.reshape(-1, 1), svcx.shape[1], axis=1)
-        ni = np.repeat(n.i.reshape(-1, 1), svcx.shape[1], axis=1)
-        svion = np.repeat(sv.ion.reshape(-1, 1), svcx.shape[1], axis=1)
-    else:
-        ne = n.e
-        ni = n.i
-        svion = sv.ion
-
-    c_i = (svcx + svel) / (ne / ni * svion + svcx + svel)
-    return c_i
-
-
-def calc_X_i(geom, mfp, en_grp):
-    """
-
-    :param geom:
-    :param mfp:
-    :param en_grp:
-    :return:
-    """
-
-    mfp_vals = mfp.s if en_grp == 'slow' else mfp.t
-
-    X_i = 4.0 * geom.area / (mfp_vals * geom.perim)
-    return X_i
-
-
-def calc_P_0i(X_i, en_grp):
-    """
-
-    :param X_i:
-    :param en_grp:
-    :return:
-    """
-    X_i = X_i.s if en_grp == 'slow' else X_i.t
-
-    n_sauer = 2.0931773
-    P_0i = 1 / X_i * (1 - (1 + X_i / n_sauer) ** -n_sauer)
-    return P_0i
-
-
-def calc_P_i(n, sv, P_0i, en_grp):
-    """
-
-    :param n:
-    :param sv:
-    :param P_0i:
-    :param en_grp:
-    :return:
-    """
-
-    P_0i = P_0i.s if en_grp == 'slow' else P_0i.t
-
-    c_i = calc_c_i(n, sv, en_grp)
-    P_i = P_0i / (1 - c_i * (1 - P_0i))
-    return P_i
-
-
-def calc_refl_alb(cell_T, face_adj):
-    # TODO: get am1 and z1 from input data
-    am1 = 2
-    z1 = 1
-
-    refle_s = np.zeros(face_adj.int_type.shape)
-    refle_t = np.zeros(face_adj.int_type.shape)
-    refln_s = np.zeros(face_adj.int_type.shape)
-    refln_t = np.zeros(face_adj.int_type.shape)
-    alb_s = np.zeros(face_adj.int_type.shape)
-    alb_t = np.zeros(face_adj.int_type.shape)
-    f_abs = np.zeros(face_adj.int_type.shape)
-
-    for (cell, side), itype in np.ndenumerate(face_adj.int_type):
-        if itype == 0:  # regular cell
-            refle_s[cell, side] = 0
-            refle_t[cell, side] = 0
-            refln_s[cell, side] = 0
-            refln_t[cell, side] = 0
-            alb_s[cell, side] = 0
-            alb_t[cell, side] = 0
-            f_abs[cell, side] = 0
-        elif itype == 1:  # plasma core cell
-            refle_s[cell, side] = 0
-            refle_t[cell, side] = 0
-            refln_s[cell, side] = 0
-            refln_t[cell, side] = 0
-            # TODO: get albedo information from input data
-            alb_s[cell, side] = 0.1
-            alb_t[cell, side] = 0
-            f_abs[cell, side] = 0
-        elif itype == 2:  # wall cell
-            # TODO: get Tn_s from input data
-            refle_s[cell, side] = calc_e_reflect(0.002, am1, face_adj.awall[cell, side], z1, face_adj.zwall[cell, side])
-            refle_t[cell, side] = calc_e_reflect(cell_T.i[cell], am1, face_adj.awall[cell, side], z1, face_adj.zwall[cell, side])
-            refln_s[cell, side] = calc_n_reflect(0.002, am1, face_adj.awall[cell, side], z1, face_adj.zwall[cell, side])
-            refln_t[cell, side] = calc_n_reflect(cell_T.i[cell], am1, face_adj.awall[cell, side], z1, face_adj.zwall[cell, side])
-            alb_s[cell, side] = 0
-            alb_t[cell, side] = 0
-            f_abs[cell, side] = 0
-
-    refle_dict = {}
-    refle_dict['s'] = refle_s
-    refle_dict['t'] = refle_t
-    refle = namedtuple('refle', refle_dict.keys())(*refle_dict.values())
-
-    refln_dict = {}
-    refln_dict['s'] = refle_s
-    refln_dict['t'] = refle_t
-    refln = namedtuple('refln', refln_dict.keys())(*refln_dict.values())
-
-    refl_dict = {}
-    refl_dict['e'] = refle
-    refl_dict['n'] = refln
-    refl = namedtuple('refl', refl_dict.keys())(*refl_dict.values())
-
-    alb_dict = {}
-    alb_dict['s'] = alb_s
-    alb_dict['t'] = alb_t
-    alb = namedtuple('alb', alb_dict.keys())(*alb_dict.values())
-
-    return alb, refl, f_abs
-
-
-def calc_Tn_intocell_t(face_adj, cell_T, refl):
-
-    # this function is only concerned with the temperature of incoming THERMAL neutrals
-    refle = refl.e.t
-    refln = refl.n.t
-
-    Tn_intocell_t = np.zeros(face_adj.int_type.shape)
-    for (cell, side), itype in np.ndenumerate(face_adj.int_type):
-        adjCell = face_adj.cellnum[cell, side]
-        if itype == 0:
-            # incoming neutral temperate equal to ion temperature in cell it's coming from
-            Tn_intocell_t[cell, side] = cell_T.i[adjCell]
-        elif itype == 1:
-            # incoming neutral temperature equal to the temperature of the current cell. It's close enough
-            # and doesn't make much of a difference.
-            Tn_intocell_t[cell, side] = cell_T.i[cell]
-        elif itype == 2:
-            Tn_intocell_t[cell, side] = cell_T.i[cell] * refle[cell, side] / refln[cell, side]
-
-    return Tn_intocell_t
-
-
-def calc_ext_src(face_adj, src):
-
-    face_ext_src = np.zeros(face_adj.int_type.shape)
-    for (cell, side), itype in np.ndenumerate(face_adj.int_type):
-        adjCell = face_adj.cellnum[cell, side]
-        if itype == 0:
-            face_ext_src[cell, side] = 0
-        elif itype == 1:
-            face_ext_src[cell, side] = 0
-        elif itype == 2:
-            face_ext_src[cell, side] = src[adjCell]
-    return face_ext_src
 
 class NeutpyTools:
 
@@ -687,27 +362,62 @@ class NeutpyTools:
     def common_plots(self):
         pass
 
+def cut(line, distance):
+    """Cuts a shapely line in two at a distance(normalized) from its starting point"""
+    if distance <= 0.0 or distance >= 1.0:
+        return [LineString(line)]
+    coords = list(line.coords)
+    for i, p in enumerate(coords):
+        pd = line.project(Point(p), normalized=True)
+        if pd == distance:
+            return [LineString(coords[:i + 1]), LineString(coords[i:])]
+        if pd > distance:
+            cp = line.interpolate(distance, normalized=True)
+            return [
+                LineString(coords[:i] + [(cp.x, cp.y)]),
+                LineString([(cp.x, cp.y)] + coords[i:])]
 
-class RgxToVal(object):
+def isinline(pt, line):
+    pt_s = Point(pt)
+    dist = line.distance(pt_s)
+    if dist < 1E-6:
+        return True
+    else:
+        return False
 
-    def __getattr__(self, item):
-        return self.get(item)
+def draw_line(R, Z, array, val, pathnum):
+    res = plt.contour(R, Z, array, [val]).collections[0].get_paths()[pathnum]
+    # res = cntr.contour(R, Z, array).trace(val)[pathnum]
+    x = res.vertices[:, 0]
+    y = res.vertices[:, 1]
+    return x, y
 
-    def __setattr__(self, key, value):
-        self[key] = value
+def getangle(p1, p2):
+    if isinstance(p1, Point) and isinstance(p2, Point):
+        p1 = [p1.coords.xy[0][0], p1.coords.xy[1][0]]
+        p2 = [p2.coords.xy[0][0], p2.coords.xy[1][0]]
+    p1 = np.asarray(p1)
+    p1 = np.reshape(p1, (-1, 2))
+    p2 = np.asarray(p2)
+    p2 = np.reshape(p2, (-1, 2))
+    theta = np.arctan2(p1[:, 1] - p2[:, 1], p1[:, 0] - p2[:, 0])
+    theta_mod = np.where(theta < 0, theta + pi,
+                         theta)  # makes it so the angle is always measured counterclockwise from the horizontal
+    return theta
 
-    def __init__(self, obj, regex, str):
-        self.regex = regex
-        self.type = obj
-        self.string = str
+def getangle3ptsdeg(p1, p2, p3):
+    a = sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+    b = sqrt((p2[0] - p3[0]) ** 2 + (p2[1] - p3[1]) ** 2)
+    c = sqrt((p1[0] - p3[0]) ** 2 + (p1[1] - p3[1]) ** 2)
+    theta = degrees(acos((c ** 2 - a ** 2 - b ** 2) / (-2 * a * b)))  # returns degree in radians
+    return theta
 
-    def __call__(self, line, *args, **kwargs):
-        result = re.match(self.regex, line)
-        if not result:
-            pass
+def listToFloatChecker(val, message, verbose=False):
+    if type(val) == np.ndarray:
+        if len(val) > 1:
+            raise ValueError(message)
         else:
-            self.value = result.group(1)
-
-
-
-
+            if verbose: warnings.warn("List value of len 1 found")
+            return val[0]
+    else:
+        return val
