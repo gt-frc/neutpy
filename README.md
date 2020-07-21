@@ -1,16 +1,33 @@
-**NeutPy**
+**NeutPy - A code for the calculation of neutral particle transport in plasmas based
+ on the transmission and escape probability method**
+
+NeutPy is the Python 2.x port of GTNEUT, which was written by John Mandrekas.
+
+GTNEUT is a two-dimensional code for the calculation of the transport of neutral particles in fusion plasmas.
+It is based on the Transmission and Escape Probabilities (TEP) method and can be considered a computationally efficient
+alternative to traditional Monte Carlo methods. The code has been benchmarked extensively against Monte Carlo and
+has been used to model the distribution of neutrals in fusion experiments.
+
+The original physics background can be found at
+
+Mandrekas, John. (2004). GTNEUT: A code for the calculation of neutral particle transport in plasmas based on the
+    Transmission and Escape Probability method. Computer Physics Communications.
+    161. 36-64. 10.1016/j.cpc.2004.04.009.
+
+The original FORTRAN 95 GTNEUT code can be found at The Fusion Research Center GitHub at
+https://github.com/gt-frc/GTNEUT
 
 **Installation**
 
 - **Triangle Installation**
 
-The Triangle 2D mesh generator is required for neutpy mesh generation. This will install Triangle
-locally to the neutpy directory. If you imagine using triangle otherwise, consider
+The Triangle 2D mesh generator is required for NeutPy mesh generation. This will install Triangle
+locally. If you imagine using triangle otherwise, consider
 following the steps below but with consideration for global installation (e.g., cloning to /opt/ instead
 of the neutpy directory). Ensure that you have a C compiler installed.
 Download the Triangle zip file from https://www.cs.cmu.edu/~quake/triangle.html or 
 
-`$ cd /your/future/neutpy/home/`
+`$ cd ~`
 
 `$ git clone https://github.com/libigl/triangle.git`
 
@@ -25,7 +42,7 @@ compiling triangle alone with (using GCC) since we do not use showme.
 
 `$ gcc -O -o bin/triangle triangle.c -lm`
 
-If you want to fully compile, edit the makefile,
+If you want to fully compile triangle and showme, edit the makefile,
 noting any special options from the README.
 
 Keep `SRC = ./` and set `BIN = ./bin/`
@@ -42,9 +59,15 @@ After triangle is compiled, set executable
 
 Set link (this allows triangle to be called on command line as triangle)
  
-`$ sudo ln -s triangle /usr/local/bin`
+`$ sudo ln -s /full/path/to/triangle /usr/local/bin/triangle`
 
 **Install NeutPy**
+
+**Using pip**
+
+`$ pip install neutpy`
+
+**From GitHub**
 
 `$ cd /your/future/neutpy/home/`
 
@@ -78,45 +101,47 @@ Install packages
 
 **Usage**
 
-NeutPy requires 6 input files:
+NeutPy requires 6 input files and 2 configuration files.
 
-`inputs/toneutprep` is the main input file and sets neutpy in motion with `neutpy_prep('toneutprep')`
+Configuration files:
+
+`toneutpy.conf` is the main input file. This file will change with each shot.
+
+`neutpy.conf` is the main NeutPy configuration file and includes parameters that probably wouldn't change between
+shots and other variables. This file needs to be in the current working directory and cannot be renamed.
 
 Data files:
 
-The data files included follow the GT3 gt3_shotid_timeid_profile.dat convention but can be defined 
-differently in your toneutprep file (which can also be named differently)
+The names of the data files included follow the GT3 gt3_shotid_timeid_profile.dat convention but can be defined 
+differently in your `toneutpy` file.
 
 Ion/Electron density and temperature data are X/Y (normalized rho/value) two-column data. Temperatures are
 in keV. Densities should be given in #/m^3. Psi data are non-normalized 3-column R/Z/value data, with R/Z in 
 meters.
 
-`inputs/shot_timeid/gt3_shotid_timeid_ne.dat` (Electron density profile)
+`gt3_shotid_timeid_ne.dat` (Electron density profile)
 
-`inputs/shot_timeid/gt3_shotid_timeid_ni.dat` (Ion density profile)
+`gt3_shotid_timeid_ni.dat` (Ion density profile)
 
-`inputs/shot_timeid/gt3_shotid_timeid_Te.dat` (Electron temperature profile)
+`gt3_shotid_timeid_Te.dat` (Electron temperature profile)
 
-`inputs/shot_timeid/gt3_shotid_timeid_Ti.dat` (Ion temperature profile)
+`gt3_shotid_timeid_Ti.dat` (Ion temperature profile)
 
-`inputs/shot_timeid/gt3_shotid_timeid_psirz.dat` (Non-normalized psi grid)
+`gt3_shotid_timeid_psirz.dat` (Non-normalized psi grid)
 
-`inputs/shot_timeid/gt3_diid_wall.dat` (DIII-D wall coordinates (R/Z))
+`gt3_diid_wall.dat` (Machine wall coordinates (R/Z))
 
-Output:
+Import the neutrals class.
 
-NeutPy will generate output in the `outputs` folder. The data are 2-D R/Z
+>>> from neutpy import neutrals
 
-`n_n_slow` - Slow (cold) neutral density 
+There are three main entry points into NeutPy: `from_file`, `from_mesh`, and `from_gt3`. The usage of
+`from_file` is as follows:
 
-`n_n_thermal` - Thermal neutral density
+>>> neuts = neutrals()
+INITIALIZING NEUTPY
+>>> neuts.from_file('/relative/path/to/your/toneutpy.conf')
 
-`n_n_total` - Total neutral density
+where the filename is relative to the CWD.
 
-`izn_rate_slow` - Ionization rate of cold neutrals
-
-`izn_rate_thermal` - Ionization rate of thermal neutrals
-
-`izn_rate_total` - Total ionization rate
-
-`T_coef.txt` is an intermediate transmission coefficient datafile
+The `from_mesh` and `from_gt3` methods are in development.

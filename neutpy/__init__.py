@@ -1,8 +1,56 @@
 # !/usr/bin/env python2
 # -*- coding: utf-8 -*-
-"""Neutpy calculates neutral densities, ionization rates, and related quantities in tokamaks.
 
-The neutpy module contains three classes: neutpy, read_infile, and neutpyplot.
+""" NeutPy - A neutrals code for tokamak fusion reactors
+
+NeutPy is the Python 2.x port of GTNEUT, which was written by John Mandrekas.
+
+GTNEUT is a two-dimensional code for the calculation of the transport of neutral particles in fusion plasmas.
+It is based on the Transmission and Escape Probabilities (TEP) method and can be considered a computationally efficient
+alternative to traditional Monte Carlo methods. The code has been benchmarked extensively against Monte Carlo and
+has been used to model the distribution of neutrals in fusion experiments.
+
+The original physics background can be found at
+
+Mandrekas, John. (2004). GTNEUT: A code for the calculation of neutral particle transport in plasmas based on the
+    Transmission and Escape Probability method. Computer Physics Communications.
+    161. 36-64. 10.1016/j.cpc.2004.04.009.
+
+The original FORTRAN 95 GTNEUT code can be found at The Fusion Research Center GitHub at
+https://github.com/gt-frc/GTNEUT
+
+The initial port to Python 2.x was done entirely by Maxwell D. Hill. Parallelization was implemented by
+Jonathan J. Roveto, who also performed packaging and refactoring for PyPi distribution. NeutPy can be found at
+https://github.com/gt-frc/neutpy
+
+Usage:
+    Import the neutrals class.
+
+    >>> from neutpy import neutrals
+
+    There are two main entry points into NeutPy: from_file and from_mesh. The usage of from_file is as follows:
+
+    >>> neuts = neutrals()
+    INITIALIZING NEUTPY
+    >>> neuts.from_file('filename')
+
+    where the filename is relative to the CWD.
+
+
+Attributes:
+    module_level_variable1 (int): Module level variables may be documented in
+        either the ``Attributes`` section of the module docstring, or in an
+        inline docstring immediately following the variable.
+
+        Either form is acceptable, but the two should not be mixed. Choose
+        one convention to document module level variables and be consistent
+        with it.
+
+TODO:
+    Implement from_mesh method
+
+.. _Google Python Style Guide:
+   http://google.github.io/styleguide/pyguide.html
 
 """
 
@@ -13,12 +61,12 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
-from coeff_calc import coeff_calc
+from neutpy.parallelNeut import coeff_calc
 from collections import namedtuple
-from lib.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, calc_svione, calc_xsec
-from lib.physics import calc_mfp, calc_X_i, calc_P_0i, calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, \
+from neutpy.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, calc_svione, calc_xsec
+from neutpy.physics import calc_mfp, calc_X_i, calc_P_0i, calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, \
     calc_ext_src
-from lib.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker
+from neutpy.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
@@ -34,10 +82,8 @@ import time
 import ConfigParser
 
 
-class neutpy:
+class neutrals:
 
-    lsides = None  # type: np.ndarray
-    nCells = None  # type: int
 
     def __init__(self, verbose=False):
         self.lsides = None
@@ -51,11 +97,6 @@ class neutpy:
         print 'INITIALIZING NEUTPY'
 
         sys.dont_write_bytecode = True
-        if not os.path.exists(os.getcwd() + '/outputs'):
-            os.makedirs(os.getcwd() + '/outputs')
-        if not os.path.exists(os.getcwd() + '/figures'):
-            os.makedirs(os.getcwd() + '/figures')
-
         self.verbose = verbose
         self.sv = calc_xsec()
 
@@ -70,41 +111,52 @@ class neutpy:
 
     def from_file(self, infile):
         """
-        Instantiate NeutPy using the main configuration file as well as a file containing profile and plasma data
+        Instantiate NeutPy using the main configuration file as well as a file containing profile and plasma data.
+        To set the configuration file, use the set_config method.
 
         :param infile: The shot data, including profiles and plasma parameters (e.g., BT0)
         :type infile: str
         """
-        self.read_config(infile)
-        if self.verbose: print 'Generating separatrix lines'
-        self.get_sep_lines()
+        self._read_config(infile)
+        if self.verbose:
+            print 'Generating separatrix lines'
+        self._get_sep_lines()
 
-        if self.verbose: print 'Generating core lines'
-        self.get_core_lines()
+        if self.verbose:
+            print 'Generating core lines'
+        self._get_core_lines()
 
-        if self.verbose: print 'Generating scrape-off layer lines'
-        self.get_sol_lines()
+        if self.verbose:
+            print 'Generating scrape-off layer lines'
+        self._get_sol_lines()
 
-        if self.verbose: print 'Generating private flux region'
-        self.pfr_lines()
+        if self.verbose:
+            print 'Generating private flux region'
+        self._pfr_lines()
 
-        if self.verbose: print 'Generating core background plasma'
-        self.core_nT()
+        if self.verbose:
+            print 'Generating core background plasma'
+        self._core_nT()
 
-        if self.verbose: print 'Generating scrape-off layer'
-        self.sol_nT()
+        if self.verbose:
+            print 'Generating scrape-off layer'
+        self._sol_nT()
 
-        if self.verbose: print 'Generating private flux region'
-        self.pfr_nT()
+        if self.verbose:
+            print 'Generating private flux region'
+        self._pfr_nT()
 
-        if self.verbose: print 'Running Triangle meshing routine'
-        self.triangle_prep()
-        self.read_triangle()
+        if self.verbose:
+            print 'Running Triangle meshing routine'
 
-        if self.verbose: print 'Running neutrals calculation'
+        self._triangle_prep()
+        self._read_triangle()
+
+        if self.verbose:
+            print 'Running neutrals calculation'
         self._run()
 
-    def get_sep_lines(self):
+    def _get_sep_lines(self):
         """
         Generate the separatric lines
 
@@ -264,7 +316,7 @@ class neutpy:
             # to the x-point
             # TODO:
 
-    def get_core_lines(self):
+    def _get_core_lines(self):
         self.core_lines = []
         # psi_pts = np.concatenate((np.linspace(0, 0.8, 5, endpoint=False), np.linspace(0.8, 1.0, 4, endpoint=False)))
         psi_pts = np.linspace(self.corelines_begin, 1, self.num_corelines, endpoint=False)
@@ -290,7 +342,7 @@ class neutpy:
                         self.core_lines.append(LineString(np.column_stack((x[:-1], y[:-1]))))
                         break
 
-    def get_sol_lines(self):
+    def _get_sol_lines(self):
         # find value of psi at outside of what we're going to call the SOL
         self.sol_lines = []
         self.sol_lines_cut = []
@@ -342,7 +394,7 @@ class neutpy:
             result = [geom for geom in polygonize(union)][0]
             self.wall_line = LineString(result.exterior.coords)
 
-    def pfr_lines(self):
+    def _pfr_lines(self):
         num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [.999]).collections[0].get_paths()))
         # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.999))/2)
         if num_lines == 1:
@@ -403,7 +455,7 @@ class neutpy:
         # plt.plot(np.asarray(self.wall_line.xy).T[:, 0], np.asarray(self.wall_line.xy).T[:, 1], color='black', lw=0.5)
         # plt.plot(np.asarray(self.pfr_line.xy).T[:, 0], np.asarray(self.pfr_line.xy).T[:, 1], color='red', lw=0.5)
 
-    def core_nT(self):
+    def _core_nT(self):
 
         # Master arrays that will contain all the points we'll use to get n, T
         # throughout the plasma chamber via 2-D interpolation
@@ -495,7 +547,7 @@ class neutpy:
             self.Ti_kev_pts = np.vstack((self.Ti_kev_pts, np.append(pt, self.Ti_kev_sep_val)))
             self.Te_kev_pts = np.vstack((self.Te_kev_pts, np.append(pt, self.Te_kev_sep_val)))
 
-    def sol_nT(self):
+    def _sol_nT(self):
         # Calculate n, T in SOL using Bohm diffusion, core data from radial profile input files, and input
         # divertor target densities and temperatures (replace with 2-pt divertor model later)
 
@@ -902,7 +954,7 @@ class neutpy:
         # plt.plot(xi_pts, sol_line_dist[:, i])
         # plt.plot(np.linspace(0, 1, num_wall_pts), wall_dist, color='black')
 
-    def pfr_nT(self):
+    def _pfr_nT(self):
 
         pfr_pts = np.asarray(self.pfr_line.xy).T
         pfr_ni = np.zeros(len(pfr_pts)) + self.pfr_ni_val
@@ -927,7 +979,7 @@ class neutpy:
         # plt.colorbar()
         # sys.exit()
 
-    def triangle_prep(self):
+    def _triangle_prep(self):
 
         sol_pol_pts = self.core_pol_pts + self.ib_div_pol_pts + self.ob_div_pol_pts
 
@@ -1036,8 +1088,10 @@ class neutpy:
         all_segs_unique = all_segs_unique.reshape(-1, 2)
 
         # # OUTPUT .poly FILE AND RUN TRIANGLE PROGRAM
-        open('tmp/exp_mesh.poly', 'w').close()
-        outfile = open('tmp/exp_mesh.poly', 'ab')
+        if not os.path.exists('tri_tmp'):
+            os.makedirs('tri_tmp')
+        open('tri_tmp/exp_mesh.poly', 'w').close()
+        outfile = open('tri_tmp/exp_mesh.poly', 'ab')
         filepath = os.path.realpath(outfile.name)
         np.savetxt(outfile,
                    np.array([all_pts_unique.shape[0], 2, 0, 0])[None],
@@ -1092,13 +1146,13 @@ class neutpy:
                 print 'triangle could not be found. Stopping.'
                 sys.exit
 
-    def read_triangle(self):
+    def _read_triangle(self):
         # # READ TRIANGLE OUTPUT
 
         # # DECLARE FILE PATHS
-        nodepath = os.getcwd() + '/tmp/exp_mesh.1.node'
-        elepath = os.getcwd() + '/tmp/exp_mesh.1.ele'
-        neighpath = os.getcwd() + '/tmp/exp_mesh.1.neigh'
+        nodepath = os.getcwd() + '/tri_tmp/exp_mesh.1.node'
+        elepath = os.getcwd() + '/tri_tmp/exp_mesh.1.ele'
+        neighpath = os.getcwd() + '/tri_tmp/exp_mesh.1.neigh'
 
         # # GET NODE DATA
         with open(nodepath, 'r') as node:
@@ -1435,7 +1489,7 @@ class neutpy:
         json.dump(out_dict, f, indent=4)
         f.close()
 
-    def read_config(self, input_file):
+    def _read_config(self, input_file):
         """
         Read the configuration files when running neutpy without a mesh given
         :param infile: The input configuration file containing radial profiles and plasma magnetic field strength (in T)
@@ -1484,10 +1538,6 @@ class neutpy:
         self.psirz_exp = np.loadtxt(os.path.join(input_dir, self.psirz_file))
         self.wall_exp = np.loadtxt(os.path.join(input_dir, self.wall_file))
 
-        # Get the neutpy output file
-
-        self.neutpy_outfile = inFile.get('Output', 'neutpy_outfile')
-
         # Get plasma parameters
 
         self.BT0 = inFile.getfloat('Plasma', 'BT0')
@@ -1497,7 +1547,7 @@ class neutpy:
         self.Z = self.psirz_exp[:, 1].reshape(-1, 65)
         self.psi = self.psirz_exp[:, 2].reshape(-1, 65)
 
-    def read_neutpy_in(self, infile):
+    def _read_neutpy_in(self, infile):
         print ('READING NEUTPY INPUT FILE')
 
         # populate 0d variables. Need to do this first to calculate the sizes of the other arrays
@@ -1553,7 +1603,7 @@ class neutpy:
         """
 
         # TODO: This and the actual running of neutpy needs to be moved out so that one can pass in an input file.
-        self.read_neutpy_in(os.getcwd() + '/neutpy_in_generated.json')
+        self._read_neutpy_in(os.getcwd() + '/neutpy_in_generated.json')
 
         time0 = time.time()
         try:
@@ -1581,7 +1631,7 @@ class neutpy:
 
         # initialize cell areas and perimeters
         cell_geom_dict = {}
-        cell_geom_dict['area'], cell_geom_dict['perim'] = self.calc_cell_geom()
+        cell_geom_dict['area'], cell_geom_dict['perim'] = self._calc_cell_geom()
         cell_geom = namedtuple('cell_geom', cell_geom_dict.keys())(*cell_geom_dict.values())
 
         # initialize cell electron ionization cross sections
@@ -1651,7 +1701,7 @@ class neutpy:
                                   np.sum(face_geom_dict['lside'], axis=1).reshape((-1, 1))
         face_geom = namedtuple('face_geom', face_geom_dict.keys())(*face_geom_dict.values())
 
-        face_adj = self.calc_adj_cell_prop()  # instance method that already has everything it needs
+        face_adj = self._calc_adj_cell_prop()  # instance method that already has everything it needs
 
         # initialize neutral temperatures for neutrals entering the cell
         face_alb, face_refl, face_f_abs = calc_refl_alb(cell_T, face_adj)
@@ -1699,17 +1749,17 @@ class neutpy:
         face = namedtuple('face', face_dict.keys())(*face_dict.values())
 
         # compute transmission coefficients
-        self.T_coef = self.calc_tcoefs(face, int_method='quad', cpu_cores=self.cpu_cores)
+        self.T_coef = self._calc_tcoefs(face, int_method='quad', cpu_cores=self.cpu_cores)
 
         # construct and solve the matrix to obtain the fluxes
-        self.flux = self.solve_matrix(face, cell, self.T_coef)
+        self.flux = self._solve_matrix(face, cell, self.T_coef)
 
         # compute ionization rates and densities
-        self.izn_rate, self.nn = self.calc_neutral_dens(cell, face, self.T_coef, self.flux)
+        self.izn_rate, self.nn = self._calc_neutral_dens(cell, face, self.T_coef, self.flux)
 
         time1 = time.time()
         minutes, seconds = divmod(time1 - time0, 60)
-        print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
+        if self.verbose: print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
         self.nn_s_raw = self.cell_nn_s
         self.nn_t_raw = self.cell_nn_t
         self.nn_raw = self.nn_s_raw + self.nn_t_raw
@@ -1718,14 +1768,17 @@ class neutpy:
         self.iznrate_t_raw = self.cell_izn_rate_t
         self.iznrate_raw = self.iznrate_s_raw + self.iznrate_t_raw
 
-        # write neutpy output files
-        # self.write_outputs(cell)
+    def gen_outfile(self, filename):
+        """
+        Write a Neutpy output file.
 
-        # create output file
-        # the file contains R, Z coordinates and then the values of several calculated parameters
-        # at each of those points.
+        This function takes as input a filename and prints out the NeutPy values. The file
+        contains R,Z coordinates and the values of several calculated parameters at each of these points.
 
-        f = open('./outputs/' + self.neutpy_outfile, 'w')
+        :param filename: The filename for the output
+        :type filename: str
+        """
+        f = open(filename, 'w')
         f.write(('{:^18s}' * 8).format('R', 'Z', 'n_n_slow', 'n_n_thermal', 'n_n_total', 'izn_rate_slow',
                                        'izn_rate_thermal', 'izn_rate_total'))
         for i, pt in enumerate(self.midpts):
@@ -1740,7 +1793,7 @@ class neutpy:
                 self.iznrate_raw[i]))
         f.close()
 
-    def calc_cell_geom(self):
+    def _calc_cell_geom(self):
         cell_area = np.zeros(self.nCells)
         cell_perim = np.zeros(self.nCells)
 
@@ -1771,7 +1824,7 @@ class neutpy:
             cell_perim[i] = np.sum(L_sides)
         return cell_area, cell_perim
 
-    def calc_adj_cell_prop(self):
+    def _calc_adj_cell_prop(self):
         """
         Determines the type of interface for each face of a cell
         :param adjCells:
@@ -1808,7 +1861,7 @@ class neutpy:
 
         return face_adj
 
-    def calc_tcoefs(self, face, int_method='quad', cpu_cores=1):
+    def _calc_tcoefs(self, face, int_method='quad', cpu_cores=1):
         # create bickley-naylor fit (much faster than evaluating Ki3 over and over)
         Ki3_x = np.linspace(0, 100, 200)
         Ki3 = np.zeros(Ki3_x.shape)
@@ -1942,7 +1995,7 @@ class neutpy:
 
         return T_coef
 
-    def solve_matrix(self, face, cell, T_coef):
+    def _solve_matrix(self, face, cell, T_coef):
         # calculate size of matrix and initialize
 
         num_fluxes = int(np.sum(self.nSides[:self.nCells]))
@@ -2385,7 +2438,7 @@ class neutpy:
 
         return flux
 
-    def calc_neutral_dens(self, cell, face, T_coef, flux):
+    def _calc_neutral_dens(self, cell, face, T_coef, flux):
         """
         Calculates the neutral density
         Args:
@@ -2483,5 +2536,5 @@ class neutpy:
 
 
 if __name__ == "__main__":
-    neuts = neutpy()
-    neuts.from_file("inputs/144977_3000/toneutpy")
+    neuts = neutrals()
+    neuts.from_file("inputs/144977_3000/toneutpy.conf")

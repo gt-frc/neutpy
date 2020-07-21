@@ -2,7 +2,7 @@
 from math import pi, sin, tan, sqrt
 import numpy as np
 from scipy import integrate
-from lib.tools import isclose
+from neutpy.tools import isclose
 import sys
 
 def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, throughcell, Ki3_fit, li):
