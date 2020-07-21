@@ -1746,16 +1746,16 @@ class neutrals:
         face_dict['sv'] = face_sv
         face_dict['ci'] = face_ci
         face_dict['mfp'] = face_mfp
-        face = namedtuple('face', face_dict.keys())(*face_dict.values())
+        self.face = namedtuple('face', face_dict.keys())(*face_dict.values())
 
         # compute transmission coefficients
-        self.T_coef = self._calc_tcoefs(face, int_method='quad', cpu_cores=self.cpu_cores)
+        self.T_coef = self._calc_tcoefs(self.face, int_method='quad', cpu_cores=self.cpu_cores)
 
         # construct and solve the matrix to obtain the fluxes
-        self.flux = self._solve_matrix(face, cell, self.T_coef)
+        self.flux = self._solve_matrix(self.face, cell, self.T_coef)
 
         # compute ionization rates and densities
-        self.izn_rate, self.nn = self._calc_neutral_dens(cell, face, self.T_coef, self.flux)
+        self.izn_rate, self.nn = self._calc_neutral_dens(cell, self.face, self.T_coef, self.flux)
 
         time1 = time.time()
         minutes, seconds = divmod(time1 - time0, 60)
@@ -1905,9 +1905,7 @@ class neutrals:
         T_to = np.zeros((self.nCells, 4, 4), dtype='int')
         T_via = np.zeros((self.nCells, 4, 4), dtype='int')
 
-        trans_coef_file = open(os.getcwd() + '/outputs/T_coef.txt', 'w')
-        trans_coef_file.write(
-            ('{:^6s}' * 3 + '{:^12s}' * 4 + '\n').format("from", "to", "via", "T_slow", "T_thermal", "mfp_s", "mfp_t"))
+
         outof = np.sum(self.nSides[:self.nCells] ** 2)
 
         start_time = time.time()
@@ -1942,36 +1940,10 @@ class neutrals:
             pool = Pool(cpu_cores)
             print "T_coef calculation running on %s cores." % cpu_cores
 
-        result = pool.map(partial(coeff_calc, **kwargs), cord_list)
+        self.coef_results = pool.map(partial(coeff_calc, **kwargs), cord_list)
 
         # result = [(0, 0, 0, 0, 0)] * (self.nCells * 4 * 4)
 
-        for (i, j, k, s, t, f, to, via) in result:
-            T_from[i, j, k] = f
-            T_to[i, j, k] = to
-            T_via[i, j, k] = via
-            T_coef_s[i, j, k] = s
-            T_coef_t[i, j, k] = t
-
-        for (i, j, k), val in np.ndenumerate(T_coef_s):
-            adj_cells = np.roll(self.adjCell[i, :self.nSides[i]], -j)
-            if k < adj_cells.size and j < adj_cells.size:
-                if j == k:
-                    trans_coef_file.write(
-                        ('{:>6d}' * 3 + '{:>12.3E}' * 4 + '\n').format(int(T_from[i, j, k]), int(T_to[i, j, k]),
-                                                                       int(T_via[i, j, k]), T_coef_s[i, j, k],
-                                                                       T_coef_t[i, j, k], face.mfp.s[i, k],
-                                                                       face.mfp.t[i, k]))
-                else:
-                    trans_coef_file.write(('{:>6d}' * 3 + '{:>12.3E}' * 4 + '\n').format(int(T_from[i, j, k]),
-                                                                                         int(T_to[i, j, k]),
-                                                                                         int(T_via[i, j, k]),
-                                                                                         T_coef_s[i, j, k],
-                                                                                         T_coef_t[i, j, k],
-                                                                                         face.mfp.s[i, j],
-                                                                                         face.mfp.t[i, j]))
-
-        trans_coef_file.close()
         end_time = time.time()
         print "Total: %s" % (end_time - start_time)
 
@@ -2533,7 +2505,49 @@ class neutrals:
         self.config_loc = f
         return self
 
+    def save_Tcoefs(self, f):
+        """
+        Save the transmission coefficients to a file.
 
+        :param f: The file to which to save the coefficients
+        :type f: str
+        """
+        trans_coef_file = open(f, 'w')
+        trans_coef_file.write(
+            ('{:^6s}' * 3 + '{:^12s}' * 4 + '\n').format("from", "to", "via", "T_slow", "T_thermal", "mfp_s", "mfp_t"))
+
+        T_coef_s = np.zeros((self.nCells, 4, 4), dtype='float')
+        T_coef_t = np.zeros((self.nCells, 4, 4), dtype='float')
+        T_from = np.zeros((self.nCells, 4, 4), dtype='int')
+        T_to = np.zeros((self.nCells, 4, 4), dtype='int')
+        T_via = np.zeros((self.nCells, 4, 4), dtype='int')
+
+        for (i, j, k, s, t, f, to, via) in self.coef_results:
+            T_from[i, j, k] = f
+            T_to[i, j, k] = to
+            T_via[i, j, k] = via
+            T_coef_s[i, j, k] = s
+            T_coef_t[i, j, k] = t
+
+        for (i, j, k), val in np.ndenumerate(T_coef_s):
+            adj_cells = np.roll(self.adjCell[i, :self.nSides[i]], -j)
+            if k < adj_cells.size and j < adj_cells.size:
+                if j == k:
+                    trans_coef_file.write(
+                        ('{:>6d}' * 3 + '{:>12.3E}' * 4 + '\n').format(int(T_from[i, j, k]), int(T_to[i, j, k]),
+                                                                       int(T_via[i, j, k]), T_coef_s[i, j, k],
+                                                                       T_coef_t[i, j, k], self.face.mfp.s[i, k],
+                                                                       self.face.mfp.t[i, k]))
+                else:
+                    trans_coef_file.write(('{:>6d}' * 3 + '{:>12.3E}' * 4 + '\n').format(int(T_from[i, j, k]),
+                                                                                         int(T_to[i, j, k]),
+                                                                                         int(T_via[i, j, k]),
+                                                                                         T_coef_s[i, j, k],
+                                                                                         T_coef_t[i, j, k],
+                                                                                         self.face.mfp.s[i, j],
+                                                                                         self.face.mfp.t[i, j]))
+
+        trans_coef_file.close()
 
 if __name__ == "__main__":
     neuts = neutrals()
