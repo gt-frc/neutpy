@@ -68,6 +68,77 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=0, bar_lengt
 
     sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix))
 
+def calc_cell_pts(neut):
+    sys.setrecursionlimit(100000)
+
+    def loop(neut, oldcell, curcell, cellscomplete, xcoords, ycoords):
+        beta[curcell, :neut.nSides[curcell]] = np.cumsum(
+            np.roll(neut.angles[curcell, :neut.nSides[curcell]], 1) - 180) + 180
+
+        # if first cell:
+        if oldcell == 0 and curcell == 0:
+            # rotate cell by theta0 value (specified)
+            beta[curcell, :neut.nSides[curcell]] = beta[curcell, :neut.nSides[curcell]] + neut.cell1_theta0
+            x_comp = np.cos(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
+                                                                                :neut.nSides[curcell]]
+            y_comp = np.sin(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
+                                                                                :neut.nSides[curcell]]
+            xcoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(x_comp), 1) + neut.cell1_ctr_x
+            ycoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(y_comp), 1) + neut.cell1_ctr_y
+
+        # for all other cells:
+        else:
+
+            # adjust all values in beta for current cell such that the side shared
+            # with oldcell has the same beta as the oldcell side
+            oldcell_beta = beta[oldcell, :][np.where(neut.adjCell[oldcell, :] == curcell)][0]
+            delta_beta = beta[curcell, np.where(neut.adjCell[curcell, :] == oldcell)] + 180 - oldcell_beta
+            beta[curcell, :neut.nSides[curcell]] = beta[curcell, :neut.nSides[curcell]] - delta_beta
+
+            # calculate non-shifted x- and y- coordinates
+            x_comp = np.cos(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
+                                                                                :neut.nSides[curcell]]
+            y_comp = np.sin(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
+                                                                                :neut.nSides[curcell]]
+            xcoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(x_comp),
+                                                              1)  # xcoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
+            ycoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(y_comp),
+                                                              1)  # ycoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
+
+            cur_in_old = np.where(neut.adjCell[oldcell, :] == curcell)[0][0]
+            old_in_cur = np.where(neut.adjCell[curcell, :] == oldcell)[0][0]
+            mdpt_old_x = (xcoords[oldcell, cur_in_old] + np.roll(xcoords[oldcell, :], -1)[cur_in_old]) / 2
+            mdpt_old_y = (ycoords[oldcell, cur_in_old] + np.roll(ycoords[oldcell, :], -1)[cur_in_old]) / 2
+            mdpt_cur_x = (xcoords[curcell, old_in_cur] + np.roll(xcoords[curcell, :], -1)[old_in_cur]) / 2
+            mdpt_cur_y = (ycoords[curcell, old_in_cur] + np.roll(ycoords[curcell, :], -1)[old_in_cur]) / 2
+
+            xshift = mdpt_old_x - mdpt_cur_x
+            yshift = mdpt_old_y - mdpt_cur_y
+
+            xcoords[curcell, :] = xcoords[curcell,
+                                  :] + xshift  # xcoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
+            ycoords[curcell, :] = ycoords[curcell,
+                                  :] + yshift  # ycoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
+
+        # continue looping through adjacent cells
+        for j, newcell in enumerate(neut.adjCell[curcell, :neut.nSides[curcell]]):
+            # if the cell under consideration is a normal cell (>3 sides) and not complete, then move into that cell and continue
+            if neut.nSides[newcell] >= 3 and cellscomplete[newcell] == 0:
+                cellscomplete[newcell] = 1
+                loop(neut, curcell, newcell, cellscomplete, xcoords, ycoords)
+
+        return xcoords, ycoords
+
+    xcoords = np.zeros(neut.adjCell.shape)
+    ycoords = np.zeros(neut.adjCell.shape)
+    beta = np.zeros(neut.adjCell.shape)  # beta is the angle of each side with respect to the +x axis.
+
+    ## Add initial cell to the list of cells that are complete
+    cellscomplete = np.zeros(neut.nCells)
+    cellscomplete[0] = 1
+    xs, ys = loop(neut, 0, 0, cellscomplete, xcoords, ycoords)
+    return xs, ys
+
 class NeutpyTools:
 
     def __init__(self, neut=None):
@@ -116,31 +187,7 @@ class NeutpyTools:
         print 'attempting to start plot_cell_vals'
         self.plot_cell_vals()
 
-    def create_flux_outfile(self):
-        # create face output data file
-        f = open('neutpy_face_data.dat', 'w')
-        f.write(('{:^18s}' * 18).format('x1', 'x2', 'x3', 'y1', 'y2', 'y3',
-                                        'flxout_s1', 'flxout_s2', 'flxout_s3',
-                                        'flxin_s1', 'flxin_s2', 'flxin_s3',
-                                        'flxout_t1', 'flxout_t2', 'flxout_t3',
-                                        'flxin_t1', 'flxin_t2', 'flxin_t3'))
-        for i, pt in enumerate(self.xs):
-            f.write(('\n' + '{:>18.5f}' * 6 + '{:>18.5E}' * 12).format(
-                self.xs[i, 0], self.xs[i, 1], self.xs[i, 2],
-                self.ys[i, 0], self.ys[i, 1], self.ys[i, 2],
-                self.flux_out_s[i, 0],
-                self.flux_out_s[i, 1],
-                self.flux_out_s[i, 2],
-                self.flux_in_s[i, 0],
-                self.flux_in_s[i, 1],
-                self.flux_in_s[i, 2],
-                self.flux_out_t[i, 0],
-                self.flux_out_t[i, 1],
-                self.flux_out_t[i, 2],
-                self.flux_in_t[i, 0],
-                self.flux_in_t[i, 1],
-                self.flux_in_t[i, 2]))
-        f.close()
+
 
     def create_cell_outfile(self):
         df = pd.DataFrame()
@@ -155,77 +202,6 @@ class NeutpyTools:
         #cell_df = iterate_namedtuple(neut.cell, df)
         df.to_csv(os.getcwd() + '/outputs/neutpy_cell_values.txt')
 
-    @staticmethod
-    def calc_cell_pts(neut):
-        sys.setrecursionlimit(100000)
-
-        def loop(neut, oldcell, curcell, cellscomplete, xcoords, ycoords):
-            beta[curcell, :neut.nSides[curcell]] = np.cumsum(
-                np.roll(neut.angles[curcell, :neut.nSides[curcell]], 1) - 180) + 180
-
-            # if first cell:
-            if oldcell == 0 and curcell == 0:
-                # rotate cell by theta0 value (specified)
-                beta[curcell, :neut.nSides[curcell]] = beta[curcell, :neut.nSides[curcell]] + neut.cell1_theta0
-                x_comp = np.cos(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
-                                                                                    :neut.nSides[curcell]]
-                y_comp = np.sin(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
-                                                                                    :neut.nSides[curcell]]
-                xcoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(x_comp), 1) + neut.cell1_ctr_x
-                ycoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(y_comp), 1) + neut.cell1_ctr_y
-
-            # for all other cells:
-            else:
-
-                # adjust all values in beta for current cell such that the side shared
-                # with oldcell has the same beta as the oldcell side
-                oldcell_beta = beta[oldcell, :][np.where(neut.adjCell[oldcell, :] == curcell)][0]
-                delta_beta = beta[curcell, np.where(neut.adjCell[curcell, :] == oldcell)] + 180 - oldcell_beta
-                beta[curcell, :neut.nSides[curcell]] = beta[curcell, :neut.nSides[curcell]] - delta_beta
-
-                # calculate non-shifted x- and y- coordinates
-                x_comp = np.cos(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
-                                                                                    :neut.nSides[curcell]]
-                y_comp = np.sin(np.radians(beta[curcell, :neut.nSides[curcell]])) * neut.lsides[curcell,
-                                                                                    :neut.nSides[curcell]]
-                xcoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(x_comp),
-                                                                  1)  # xcoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-                ycoords[curcell, :neut.nSides[curcell]] = np.roll(np.cumsum(y_comp),
-                                                                  1)  # ycoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-
-                cur_in_old = np.where(neut.adjCell[oldcell, :] == curcell)[0][0]
-                old_in_cur = np.where(neut.adjCell[curcell, :] == oldcell)[0][0]
-                mdpt_old_x = (xcoords[oldcell, cur_in_old] + np.roll(xcoords[oldcell, :], -1)[cur_in_old]) / 2
-                mdpt_old_y = (ycoords[oldcell, cur_in_old] + np.roll(ycoords[oldcell, :], -1)[cur_in_old]) / 2
-                mdpt_cur_x = (xcoords[curcell, old_in_cur] + np.roll(xcoords[curcell, :], -1)[old_in_cur]) / 2
-                mdpt_cur_y = (ycoords[curcell, old_in_cur] + np.roll(ycoords[curcell, :], -1)[old_in_cur]) / 2
-
-                xshift = mdpt_old_x - mdpt_cur_x
-                yshift = mdpt_old_y - mdpt_cur_y
-
-                xcoords[curcell, :] = xcoords[curcell,
-                                      :] + xshift  # xcoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-                ycoords[curcell, :] = ycoords[curcell,
-                                      :] + yshift  # ycoords[oldcell,np.where(neut.adjCell[oldcell,:]==curcell)[0][0]]
-
-            # continue looping through adjacent cells
-            for j, newcell in enumerate(neut.adjCell[curcell, :neut.nSides[curcell]]):
-                # if the cell under consideration is a normal cell (>3 sides) and not complete, then move into that cell and continue
-                if neut.nSides[newcell] >= 3 and cellscomplete[newcell] == 0:
-                    cellscomplete[newcell] = 1
-                    loop(neut, curcell, newcell, cellscomplete, xcoords, ycoords)
-
-            return xcoords, ycoords
-
-        xcoords = np.zeros(neut.adjCell.shape)
-        ycoords = np.zeros(neut.adjCell.shape)
-        beta = np.zeros(neut.adjCell.shape)  # beta is the angle of each side with respect to the +x axis.
-
-        ## Add initial cell to the list of cells that are complete
-        cellscomplete = np.zeros(neut.nCells)
-        cellscomplete[0] = 1
-        xs, ys = loop(neut, 0, 0, cellscomplete, xcoords, ycoords)
-        return xs, ys
 
     def plot_cell_lines(self, dir=''):
 
@@ -416,8 +392,33 @@ def listToFloatChecker(val, message, verbose=False):
     if type(val) == np.ndarray:
         if len(val) > 1:
             raise ValueError(message)
-        else:
+        elif len(val) == 1:
             if verbose: warnings.warn("List value of len 1 found")
             return val[0]
+        else:
+            if verbose: warnings.warn("List value of len 0 found")
+            return val
     else:
         return val
+
+def calc_fsa(x, R, Z):
+
+
+    R1 = R[:, :-1]
+    R2 = np.roll(R[:, :-1], -1, axis=1)
+    Z1 = Z[:, :-1]
+    Z2 = np.roll(Z[:, :-1], -1, axis=1)
+    x1 = x[:, :-1]
+    x2 = np.roll(x[:, :-1], -1, axis=1)
+
+    dl = np.sqrt((R2 - R1) ** 2 + (Z2 - Z1) ** 2)
+
+    R_av = (R1 + R2)/2
+
+    dA = dl * (2 * pi * R_av)
+
+    x_av = (x1 + x2)/2
+
+    fsa = np.sum(x_av * dA, axis=1) / np.sum(dA, axis=1)
+    fsa[0] = x[0, 0]
+    return fsa

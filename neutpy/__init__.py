@@ -58,6 +58,7 @@ from __future__ import division
 
 from math import tan
 import numpy as np
+import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
@@ -66,7 +67,8 @@ from collections import namedtuple
 from neutpy.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, calc_svione, calc_xsec
 from neutpy.physics import calc_mfp, calc_X_i, calc_P_0i, calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, \
     calc_ext_src
-from neutpy.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker
+from neutpy.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker, calc_fsa, \
+    calc_cell_pts
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
@@ -155,6 +157,9 @@ class neutrals:
         if self.verbose:
             print 'Running neutrals calculation'
         self._run()
+
+        # get vertices in R, Z geometry
+        self.xs, self.ys = self.calc_cell_pts()
 
     def _get_sep_lines(self):
         """
@@ -1122,22 +1127,24 @@ class neutrals:
         # construct options to pass to triangle, as specified in input file
         # refer to https://www.cs.cmu.edu/~quake/triangle.html
 
-        tri_min_angle = 10.0
-        tri_min_area = 0.005
+
+
         tri_options = '-p'
         try:
-            tri_options = tri_options + 'q' + str(tri_min_angle)
+            tri_options = tri_options + 'q' + str(self.tri_min_angle)
         except:
             pass
 
         try:
-            tri_options = tri_options + 'a' + str(tri_min_area)
+            print self.tri_min_area
+            tri_options = tri_options + 'a' + str(self.tri_min_area)
         except:
             pass
 
         tri_options = tri_options + 'nz'
         # call triangle
         try:
+            print tri_options
             call(['triangle', tri_options, filepath])
         except AttributeError:
             try:
@@ -1520,6 +1527,8 @@ class neutrals:
         self.pfr_ne_val = config.getfloat('Data', 'pfr_ne_val')
         self.pfr_Ti_val = config.getfloat('Data', 'pfr_Ti_val')
         self.pfr_Te_val = config.getfloat('Data', 'pfr_Te_val')
+        self.tri_min_area = config.getfloat('Data', 'tri_min_area')
+        self.tri_min_angle = config.getfloat('Data', 'tri_min_angle')
 
         # Pull in data from the input file
 
@@ -1947,6 +1956,14 @@ class neutrals:
         end_time = time.time()
         print "Total: %s" % (end_time - start_time)
 
+        for (i, j, k, s, t, f, to, via) in self.coef_results:
+            T_from[i, j, k] = f
+            T_to[i, j, k] = to
+            T_via[i, j, k] = via
+            T_coef_s[i, j, k] = s
+            T_coef_t[i, j, k] = t
+
+
         # create t_coef_sum arrays for use later
         tcoef_sum_s = np.zeros((self.nCells, 4))
         tcoef_sum_t = np.zeros((self.nCells, 4))
@@ -2328,7 +2345,7 @@ class neutrals:
                         face_to_loc = [T_coef_loc[0], T_coef_loc[-1]]
 
                         source[i] = source[i] + incoming_flux * T_coef.t[T_coef_loc]
-
+                        #TODO: Check deprecation warnings for this.
                         # calculate collided source to cell_to
                         source[i] = source[i] + incoming_flux * (1.0 - T_coef.sum_t[face_from_loc]) * \
                                     face.ci.t[face_from_loc] * (cell.P0i.t[cell_io] * face.lfrac[face_to_loc] + (
@@ -2549,6 +2566,59 @@ class neutrals:
 
         trans_coef_file.close()
 
+    def save_flux_outfile(self, filename):
+        # create face output data file
+        f = open(filename, 'w')
+        f.write(('{:^18s}' * 18).format('x1', 'x2', 'x3', 'y1', 'y2', 'y3',
+                                        'flxout_s1', 'flxout_s2', 'flxout_s3',
+                                        'flxin_s1', 'flxin_s2', 'flxin_s3',
+                                        'flxout_t1', 'flxout_t2', 'flxout_t3',
+                                        'flxin_t1', 'flxin_t2', 'flxin_t3'))
+        for i, pt in enumerate(self.xs):
+            f.write(('\n' + '{:>18.5f}' * 6 + '{:>18.5E}' * 12).format(
+                self.xs[i, 0], self.xs[i, 1], self.xs[i, 2],
+                self.ys[i, 0], self.ys[i, 1], self.ys[i, 2],
+                self.flux_out_s[i, 0],
+                self.flux_out_s[i, 1],
+                self.flux_out_s[i, 2],
+                self.flux_in_s[i, 0],
+                self.flux_in_s[i, 1],
+                self.flux_in_s[i, 2],
+                self.flux_out_t[i, 0],
+                self.flux_out_t[i, 1],
+                self.flux_out_t[i, 2],
+                self.flux_in_t[i, 0],
+                self.flux_in_t[i, 1],
+                self.flux_in_t[i, 2]))
+        f.close()
+
+    def plot_dens_slow_1D(self):
+        y_tmp = np.nan_to_num(griddata(np.column_stack((self.midpts[:, 0], self.midpts[:, 1])),
+                                       self.nn.s,
+                                       (self.R, self.Z),
+                                       method="linear"))
+        fig = plt.pcolormesh(self.R, self.Z, y_tmp)
+
+
+    def plot_dens_thermal_1D(self):
+        y_tmp = np.nan_to_num(griddata(np.column_stack((self.midpts[:, 0], self.midpts[:, 1])),
+                                       self.nn.t,
+                                       (self.R, self.Z),
+                                       method="linear"))
+        plt.pcolormesh(self.R, self.Z, y_tmp)
+
+    def plot_dens_total_1D(self):
+        y_tmp = np.nan_to_num(griddata(np.column_stack((self.midpts[:, 0], self.midpts[:, 1])),
+                                       self.nn.tot,
+                                       (self.R, self.Z),
+                                       method="linear"))
+        plt.pcolormesh(self.R, self.Z, y_tmp)
+
+
+
+
+
 if __name__ == "__main__":
     neuts = neutrals()
     neuts.from_file("inputs/144977_3000/toneutpy.conf")
+    neuts.plot_dens_slow_1D()

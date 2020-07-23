@@ -24,7 +24,7 @@ https://github.com/gt-frc/GTNEUT
 The Triangle 2D mesh generator is required for NeutPy mesh generation. This will install Triangle
 locally. If you imagine using triangle otherwise, consider
 following the steps below but with consideration for global installation (e.g., cloning to /opt/ instead
-of the neutpy directory). Ensure that you have a C compiler installed.
+of your home directory). Ensure that you have a C compiler installed.
 Download the Triangle zip file from https://www.cs.cmu.edu/~quake/triangle.html or 
 
 `$ cd ~`
