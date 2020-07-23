@@ -36,16 +36,6 @@ Usage:
 
     where the filename is relative to the CWD.
 
-
-Attributes:
-    module_level_variable1 (int): Module level variables may be documented in
-        either the ``Attributes`` section of the module docstring, or in an
-        inline docstring immediately following the variable.
-
-        Either form is acceptable, but the two should not be mixed. Choose
-        one convention to document module level variables and be consistent
-        with it.
-
 TODO:
     Implement from_mesh method
 
@@ -58,7 +48,6 @@ from __future__ import division
 
 from math import tan
 import numpy as np
-import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
@@ -159,7 +148,7 @@ class neutrals:
         self._run()
 
         # get vertices in R, Z geometry
-        self.xs, self.ys = self.calc_cell_pts()
+        self.xs, self.ys = calc_cell_pts(self)
 
     def _get_sep_lines(self):
         """
@@ -1620,142 +1609,159 @@ class neutrals:
         except:
             self.cpu_cores = 1
 
-        cell_n_dict = {}
-        cell_n_dict['i'] = self.ionDens[:self.nCells]
-        cell_n_dict['e'] = self.elecDens[:self.nCells]
-        cell_n_dict['n'] = np.zeros(self.nCells)
-        cell_n = namedtuple('cell_n', cell_n_dict.keys())(*cell_n_dict.values())
+        Densities = namedtuple('Densities', 'i e n')
+        """A namedtuple of ion, electron, and neutral (i, e, and n) densities"""
+
+        Temperatures = namedtuple('Temperatures', 'i e')
+        """A namedtuple of ion and electron (i and e) temperatures"""
+
+        NeutralsTemperatures = namedtuple('NeutralsTemperatures', 's t')
+        """A namedtuple of neutrals (s and t) temperatures"""
+
+        Geometry = namedtuple('Geometry', 'area perim')
+        """A namedtuple of cell geometry parameters (area and perimeter)"""
+
+        SigmaV = namedtuple('SigmaV', 'ion rec cx_s cx_t el_s el_t eln_s eln_t')
+        """A namedtuple containing sigma*V values"""
+
+        MFP = namedtuple('MFP', 's t')
+        """A namedtuple containing MFP values for slow (s) and thermal (t) neutrals"""
+
+        CI = namedtuple('CI', 's t')
+        """An unknown named tuple!"""
+
+        Xi = namedtuple('Xi', 's t')
+        """A namedtuple containing xi values for slow (s) and thermal (t) neutrals"""
+
+        P0i = namedtuple('P0i', 's t')
+        """A namedtuple containing P0i values for slow (s) and thermal (t) neutrals"""
+
+        Pi = namedtuple('Pi', 's t')
+        """A namedtuple containing Pi values for slow (s) and thermal (t) neutrals"""
+
+        Cell = namedtuple('Cell', 'n T Tn area perim sv mfp ci Xi P0i Pi')
+        """A named tuple containing information for cells"""
+
+        Face = namedtuple('Face', 'lside lfrac adj alb f_abs refl Tn_in s_ext sv ci mfp')
+        """A namedtuple containing information for faces"""
+
+        FaceGeometry = namedtuple('FaceGeometry', 'lside lfrac')
+        """A namedtuple containing information for the geometry of faces"""
+
+
+        cell_n = Densities(self.ionDens[:self.nCells],
+                           self.elecDens[:self.nCells],
+                           np.zeros(self.nCells))
 
         # initialize cell ion and electron temperatures
-        cell_T_dict = {}
-        cell_T_dict['i'] = self.ionTemp[:self.nCells]
-        cell_T_dict['e'] = self.elecTemp[:self.nCells]
-        cell_T = namedtuple('cell_T', cell_T_dict.keys())(*cell_T_dict.values())
+
+        cell_T = Temperatures(self.ionTemp[:self.nCells],
+                              self.elecTemp[:self.nCells])
 
         # initialize cell neutral temperatures
-        cell_Tn_dict = {}
-        cell_Tn_dict['t'] = self.ionTemp[:self.nCells]
-        cell_Tn_dict['s'] = np.full(cell_Tn_dict['t'].shape, 0.002)
-        cell_Tn = namedtuple('cell_Tn', cell_Tn_dict.keys())(*cell_Tn_dict.values())
+        cell_Tn = NeutralsTemperatures(self.ionTemp[:self.nCells],
+                                       np.full(self.ionTemp[:self.nCells].shape, 0.002))
 
         # initialize cell areas and perimeters
-        cell_geom_dict = {}
-        cell_geom_dict['area'], cell_geom_dict['perim'] = self._calc_cell_geom()
-        cell_geom = namedtuple('cell_geom', cell_geom_dict.keys())(*cell_geom_dict.values())
+
+        geom = self._calc_cell_geom()
+        cell_geom = Geometry(geom[0], geom[1])
 
         # initialize cell electron ionization cross sections
-        cell_sv_dict = {}
-        cell_sv_dict['ion'] = calc_svione(self.sv, cell_n, cell_T)
-        cell_sv_dict['rec'] = calc_svrec(self.sv, cell_n, cell_T)
-        cell_sv_dict['cx_s'] = calc_svcx(self.sv, cell_T, cell_Tn, 'slow')
-        cell_sv_dict['cx_t'] = calc_svcx(self.sv, cell_T, cell_Tn, 'thermal')
 
-        cell_sv_dict['el_s'] = calc_svel(self.sv, cell_T, cell_Tn, 'slow')
-        cell_sv_dict['el_t'] = calc_svel(self.sv, cell_T, cell_Tn, 'thermal')
-        cell_sv_dict['eln_s'] = calc_sveln(self.sv, cell_Tn, 'slow')
-        cell_sv_dict['eln_t'] = calc_sveln(self.sv, cell_Tn, 'thermal')
-        cell_sv = namedtuple('cell_sv', cell_sv_dict.keys())(*cell_sv_dict.values())
+        cell_sv = SigmaV(calc_svione(self.sv, cell_n, cell_T),
+                         calc_svrec(self.sv, cell_n, cell_T),
+                         calc_svcx(self.sv, cell_T, cell_Tn, 'slow'),
+                         calc_svcx(self.sv, cell_T, cell_Tn, 'thermal'),
+                         calc_svel(self.sv, cell_T, cell_Tn, 'slow'),
+                         calc_svel(self.sv, cell_T, cell_Tn, 'thermal'),
+                         calc_sveln(self.sv, cell_Tn, 'slow'),
+                         calc_sveln(self.sv, cell_Tn, 'thermal'))
 
         # initialize cell mfp values
-        cell_mfp_dict = {}
-        cell_mfp_dict['s'] = calc_mfp(cell_Tn, cell_n, cell_sv, 'slow')
-        cell_mfp_dict['t'] = calc_mfp(cell_Tn, cell_n, cell_sv, 'thermal')
-        cell_mfp = namedtuple('cell_mfp', cell_mfp_dict.keys())(*cell_mfp_dict.values())
+        cell_mfp = MFP(calc_mfp(cell_Tn, cell_n, cell_sv, 'slow'),
+                       calc_mfp(cell_Tn, cell_n, cell_sv, 'thermal'))
 
         # initialize cell c_i values
-        cell_ci_dict = {}
-        cell_ci_dict['s'] = calc_c_i(cell_n, cell_sv, 'slow')
-        cell_ci_dict['t'] = calc_c_i(cell_n, cell_sv, 'thermal')
-        cell_ci = namedtuple('cell_ci', cell_ci_dict.keys())(*cell_ci_dict.values())
+
+        cell_ci = CI(calc_c_i(cell_n, cell_sv, 'slow'),
+                     calc_c_i(cell_n, cell_sv, 'thermal'))
 
         # initialize cell X_i values
-        cell_Xi_dict = {}
-        cell_Xi_dict['s'] = calc_X_i(cell_geom, cell_mfp, 'slow')
-        cell_Xi_dict['t'] = calc_X_i(cell_geom, cell_mfp, 'thermal')
-        cell_Xi = namedtuple('cell_Xi', cell_Xi_dict.keys())(*cell_Xi_dict.values())
+
+        cell_Xi = Xi(calc_X_i(cell_geom, cell_mfp, 'slow'),
+                     calc_X_i(cell_geom, cell_mfp, 'thermal'))
+
 
         # initialize cell P_0i values
-        cell_P0i_dict = {}
-        cell_P0i_dict['s'] = calc_P_0i(cell_Xi, 'slow')
-        cell_P0i_dict['t'] = calc_P_0i(cell_Xi, 'thermal')
-        cell_P0i = namedtuple('cell_P0i', cell_P0i_dict.keys())(*cell_P0i_dict.values())
+
+        cell_P0i = P0i(calc_P_0i(cell_Xi, 'slow'),
+                       calc_P_0i(cell_Xi, 'thermal'))
 
         # initialize cell P_i values
-        cell_Pi_dict = {}
-        cell_Pi_dict['s'] = calc_P_i(cell_n, cell_sv, cell_P0i, 'slow')
-        cell_Pi_dict['t'] = calc_P_i(cell_n, cell_sv, cell_P0i, 'thermal')
-        cell_Pi = namedtuple('cell_Pi', cell_Pi_dict.keys())(*cell_Pi_dict.values())
+        cell_Pi = Pi(calc_P_i(cell_n, cell_sv, cell_P0i, 'slow'),
+                     calc_P_i(cell_n, cell_sv, cell_P0i, 'thermal'))
+
 
         # combine into 'cell' dictionary and namedtuple
-        cell_dict = {}
-        cell_dict['n'] = cell_n
-        cell_dict['T'] = cell_T
-        cell_dict['Tn'] = cell_Tn
-        cell_dict['area'] = cell_geom.area
-        cell_dict['perim'] = cell_geom.perim
-        cell_dict['sv'] = cell_sv
-        cell_dict['mfp'] = cell_mfp
-        cell_dict['ci'] = cell_ci
-        cell_dict['Xi'] = cell_Xi
-        cell_dict['P0i'] = cell_P0i
-        cell_dict['Pi'] = cell_Pi
-        cell = namedtuple('cell', cell_dict.keys())(*cell_dict.values())
+
+        cell = Cell(cell_n,
+                    cell_T,
+                    cell_Tn,
+                    cell_geom.area,
+                    cell_geom.perim,
+                    cell_sv,
+                    cell_mfp,
+                    cell_ci,
+                    cell_Xi,
+                    cell_P0i,
+                    cell_Pi)
 
         #########################################################################
 
         # initialize face geometry and adjacent cell parameters
-        face_geom_dict = {}
-        face_geom_dict['lside'] = self.lsides[:self.nCells]
-        face_geom_dict['lfrac'] = face_geom_dict['lside'] / \
-                                  np.sum(face_geom_dict['lside'], axis=1).reshape((-1, 1))
-        face_geom = namedtuple('face_geom', face_geom_dict.keys())(*face_geom_dict.values())
+        face_geom = FaceGeometry(self.lsides[:self.nCells],
+                                 self.lsides[:self.nCells] / np.sum(self.lsides[:self.nCells], axis=1).reshape((-1, 1)))
+
+
 
         face_adj = self._calc_adj_cell_prop()  # instance method that already has everything it needs
 
         # initialize neutral temperatures for neutrals entering the cell
         face_alb, face_refl, face_f_abs = calc_refl_alb(cell_T, face_adj)
 
-        face_Tn_in_dict = {}
-        face_Tn_in_dict['s'] = np.full(face_adj.int_type.shape, 0.002)
-        face_Tn_in_dict['t'] = calc_Tn_intocell_t(face_adj, cell_T, face_refl)
-        face_Tn_in = namedtuple('face_Tn_in', face_Tn_in_dict.keys())(*face_Tn_in_dict.values())
+        face_Tn_in = NeutralsTemperatures(np.full(face_adj.int_type.shape, 0.002),
+                                          calc_Tn_intocell_t(face_adj, cell_T, face_refl))
+
         face_s_ext = calc_ext_src(face_adj, self.s_ext)
+        face_sv = SigmaV(cell_sv.ion,
+                         cell_sv.rec,
+                         calc_svcx(self.sv, cell_T, face_Tn_in, 'slow'),
+                         calc_svcx(self.sv, cell_T, face_Tn_in, 'thermal'),
+                         calc_svel(self.sv, cell_T, face_Tn_in, 'slow'),
+                         calc_svel(self.sv, cell_T, face_Tn_in, 'thermal'),
+                         calc_sveln(self.sv, face_Tn_in, 'slow'),
+                         calc_sveln(self.sv, face_Tn_in, 'thermal'))
 
-        face_sv_dict = {}
-        face_sv_dict['ion'] = cell_sv.ion  # included so face_sv has a complete set of cross sections
-        face_sv_dict['rec'] = cell_sv.rec  # included so face_sv has a complete set of cross sections
-        face_sv_dict['cx_s'] = calc_svcx(self.sv, cell_T, face_Tn_in, 'slow')
-        face_sv_dict['cx_t'] = calc_svcx(self.sv, cell_T, face_Tn_in, 'thermal')
-        face_sv_dict['el_s'] = calc_svel(self.sv, cell_T, face_Tn_in, 'slow')
-        face_sv_dict['el_t'] = calc_svel(self.sv, cell_T, face_Tn_in, 'thermal')
-        face_sv_dict['eln_s'] = calc_sveln(self.sv, face_Tn_in, 'slow')
-        face_sv_dict['eln_t'] = calc_sveln(self.sv, face_Tn_in, 'thermal')
-        face_sv = namedtuple('face_sv', face_sv_dict.keys())(*face_sv_dict.values())
+        face_ci = CI(calc_c_i(cell_n, face_sv, 'slow'),
+                     calc_c_i(cell_n, face_sv, 'thermal'))
 
-        face_ci_dict = {}
-        face_ci_dict['s'] = calc_c_i(cell_n, face_sv, 'slow')
-        face_ci_dict['t'] = calc_c_i(cell_n, face_sv, 'thermal')
-        face_ci = namedtuple('face_ci', face_ci_dict.keys())(*face_ci_dict.values())
-
-        face_mfp_dict = {}
-        face_mfp_dict['s'] = calc_mfp(face_Tn_in, cell_n, face_sv, 'slow')
-        face_mfp_dict['t'] = calc_mfp(face_Tn_in, cell_n, face_sv, 'thermal')
-        face_mfp = namedtuple('face_mfp', face_mfp_dict.keys())(*face_mfp_dict.values())
+        face_mfp = MFP(calc_mfp(face_Tn_in, cell_n, face_sv, 'slow'),
+                       calc_mfp(face_Tn_in, cell_n, face_sv, 'thermal'))
 
         # combine into a face dictionary and namedtuple
-        face_dict = {}
-        face_dict['lside'] = face_geom.lside
-        face_dict['lfrac'] = face_geom.lfrac
-        face_dict['adj'] = face_adj
-        face_dict['alb'] = face_alb
-        face_dict['f_abs'] = face_f_abs
-        face_dict['refl'] = face_refl
-        face_dict['Tn_in'] = face_Tn_in
-        face_dict['s_ext'] = face_s_ext
-        face_dict['sv'] = face_sv
-        face_dict['ci'] = face_ci
-        face_dict['mfp'] = face_mfp
-        self.face = namedtuple('face', face_dict.keys())(*face_dict.values())
+
+        self.face = Face(face_geom.lside,
+                         face_geom.lfrac,
+                         face_adj,
+                         face_alb,
+                         face_f_abs,
+                         face_refl,
+                         face_Tn_in,
+                         face_s_ext,
+                         face_sv,
+                         face_ci,
+                         face_mfp)
 
         # compute transmission coefficients
         self.T_coef = self._calc_tcoefs(self.face, int_method='quad', cpu_cores=self.cpu_cores)
@@ -1857,16 +1863,14 @@ class neutrals:
                 face_twall[i, j] = self.twall[val]
                 face_f_abs[i, j] = self.f_abs[val]
                 face_s_ext[i, j] = self.s_ext[val]
+        FaceAdj = namedtuple('FaceAdj', 'cellnum int_type awall zwall f_abs s_ext')
 
-        face_adj_dict = {}
-        face_adj_dict['cellnum'] = face_adjcell
-        face_adj_dict['int_type'] = face_int_type
-        face_adj_dict['awall'] = face_awall
-        face_adj_dict['zwall'] = face_zwall
-        face_adj_dict['twall'] = face_twall
-        face_adj_dict['f_abs'] = face_f_abs
-        face_adj_dict['s_ext'] = face_s_ext
-        face_adj = namedtuple('face_adj', face_adj_dict.keys())(*face_adj_dict.values())
+        face_adj = FaceAdj(face_adjcell,
+                           face_int_type,
+                           face_awall,
+                           face_zwall,
+                           face_f_abs,
+                           face_s_ext)
 
         return face_adj
 
@@ -1972,15 +1976,14 @@ class neutrals:
                 tcoef_sum_s[i, k] = np.sum(T_coef_s[np.where((T_via == i) & (T_from == self.adjCell[i, k]))])
                 tcoef_sum_t[i, k] = np.sum(T_coef_t[np.where((T_via == i) & (T_from == self.adjCell[i, k]))])
 
-        T_coef_dict = {}
-        T_coef_dict['s'] = T_coef_s
-        T_coef_dict['t'] = T_coef_t
-        T_coef_dict['from_cell'] = T_from
-        T_coef_dict['to_cell'] = T_to
-        T_coef_dict['via_cell'] = T_via
-        T_coef_dict['sum_s'] = tcoef_sum_s
-        T_coef_dict['sum_t'] = tcoef_sum_t
-        T_coef = namedtuple('T_coef', T_coef_dict.keys())(*T_coef_dict.values())
+        TransmissionCoefficients = namedtuple('TransmissionCoefficients', 's t from_cell to_cell via_cell sum_s sum_t')
+        T_coef = TransmissionCoefficients(T_coef_s,
+                                          T_coef_t,
+                                          T_from,
+                                          T_to,
+                                          T_via,
+                                          tcoef_sum_s,
+                                          tcoef_sum_t)
 
         return T_coef
 
@@ -2383,11 +2386,13 @@ class neutrals:
                         flux_out_t[i, j] = flux_out[flux_counter]
                     flux_counter += 1
 
-        flux_out_dict = {}
-        flux_out_dict['s'] = flux_out_s
-        flux_out_dict['t'] = flux_out_t
-        flux_out_dict['tot'] = flux_out_s + flux_out_t
-        flux_out = namedtuple('flux_out', flux_out_dict.keys())(*flux_out_dict.values())
+        Flux = namedtuple('Flux', 'inc out')
+        DirectedFlux = namedtuple('DirectedFlux', 's t tot')
+
+        flux_out = DirectedFlux(flux_out_s,
+                                flux_out_t,
+                                flux_out_s + flux_out_t)
+
 
         # create incoming flux arrays, dictionary, and namedtuple
         flux_inc_s = np.zeros(flux_out_s.shape)
@@ -2414,16 +2419,13 @@ class neutrals:
                     flux_inc_t[i, k] = flux_out_t[i, k] * face.refl.n.t[i, k]
                     flux_inc_s[i, k] = flux_inc_s[i, k] + face.s_ext[i, k]
 
-        flux_inc_dict = {}
-        flux_inc_dict['s'] = flux_inc_s
-        flux_inc_dict['t'] = flux_inc_t
-        flux_inc_dict['tot'] = flux_inc_s + flux_inc_t
-        flux_inc = namedtuple('flux_inc', flux_inc_dict.keys())(*flux_inc_dict.values())
+        flux_inc = DirectedFlux(flux_inc_s,
+                                flux_inc_t,
+                                flux_inc_s + flux_inc_t)
 
-        flux_dict = {}
-        flux_dict['inc'] = flux_inc
-        flux_dict['out'] = flux_out
-        flux = namedtuple('flux', flux_dict.keys())(*flux_dict.values())
+        flux = Flux(flux_inc,
+                    flux_out)
+
 
         return flux
 
@@ -2486,17 +2488,16 @@ class neutrals:
                             nn_count += 1
                 self.cell_nn[i] = nn_sum / nn_count
 
-        izn_rate_dict = {}
-        izn_rate_dict['s'] = self.cell_izn_rate_s
-        izn_rate_dict['t'] = self.cell_izn_rate_t
-        izn_rate_dict['tot'] = self.cell_izn_rate
-        izn_rate = namedtuple('izn_rate', izn_rate_dict.keys())(*izn_rate_dict.values())
+        IonizationRate = namedtuple('IonizationRate', 's t tot')
+        NeutralDensities = namedtuple('NeutralDensities', 's t tot')
 
-        nn_dict = {}
-        nn_dict['s'] = self.cell_nn_s
-        nn_dict['t'] = self.cell_nn_t
-        nn_dict['tot'] = self.cell_nn
-        nn = namedtuple('nn', izn_rate_dict.keys())(*nn_dict.values())
+        izn_rate = IonizationRate(self.cell_izn_rate_s,
+                                  self.cell_izn_rate_t,
+                                  self.cell_izn_rate)
+
+        nn = NeutralDensities(self.cell_nn_s,
+                              self.cell_nn_t,
+                              self.cell_nn)
 
         return izn_rate, nn
 
@@ -2578,18 +2579,18 @@ class neutrals:
             f.write(('\n' + '{:>18.5f}' * 6 + '{:>18.5E}' * 12).format(
                 self.xs[i, 0], self.xs[i, 1], self.xs[i, 2],
                 self.ys[i, 0], self.ys[i, 1], self.ys[i, 2],
-                self.flux_out_s[i, 0],
-                self.flux_out_s[i, 1],
-                self.flux_out_s[i, 2],
-                self.flux_in_s[i, 0],
-                self.flux_in_s[i, 1],
-                self.flux_in_s[i, 2],
-                self.flux_out_t[i, 0],
-                self.flux_out_t[i, 1],
-                self.flux_out_t[i, 2],
-                self.flux_in_t[i, 0],
-                self.flux_in_t[i, 1],
-                self.flux_in_t[i, 2]))
+                self.flux.out.s[i, 0],
+                self.flux.out.s[i, 1],
+                self.flux.out.s[i, 2],
+                self.flux.inc.s[i, 0],
+                self.flux.inc.s[i, 1],
+                self.flux.inc.s[i, 2],
+                self.flux.out.t[i, 0],
+                self.flux.out.t[i, 1],
+                self.flux.out.t[i, 2],
+                self.flux.inc.t[i, 0],
+                self.flux.inc.t[i, 1],
+                self.flux.inc.t[i, 2]))
         f.close()
 
     def plot_dens_slow_1D(self):
@@ -2622,3 +2623,5 @@ if __name__ == "__main__":
     neuts = neutrals()
     neuts.from_file("inputs/144977_3000/toneutpy.conf")
     neuts.plot_dens_slow_1D()
+    neuts.plot_dens_thermal_1D()
+    neuts.plot_dens_total_1D()
