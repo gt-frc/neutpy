@@ -1676,12 +1676,12 @@ def calc_svel(sv, T, Tn, en_grp, xsec_el='stacey_thomas'):
         Ti = T.i
 
     if xsec_el == 'janev':
-        print 'janev elastic scattering cross sections not available. Using Stacey-Thomas instead.'
+        print('janev elastic scattering cross sections not available. Using Stacey-Thomas instead.')
         sv_el = sv.el_st(Ti, Tn)
     elif xsec_el == 'stacey_thomas':
         sv_el = sv.el_st(Ti, Tn)
     elif xsec_el == 'degas':
-        print 'degas elastic scattering cross sections not available. Using Stacey-Thomas instead.'
+        print('degas elastic scattering cross sections not available. Using Stacey-Thomas instead.')
         sv_el = sv.el_st(Ti, Tn)
     return sv_el
 
@@ -1699,12 +1699,12 @@ def calc_sveln(sv, Tn, en_grp, xsec_eln='stacey_thomas'):
     Tn = Tn.s if en_grp == 'slow' else Tn.t
 
     if xsec_eln == 'janev':
-        print 'janev elastic scattering cross sections not available. Using Stacey-Thomas instead..'
+        print('janev elastic scattering cross sections not available. Using Stacey-Thomas instead..')
         sv_eln = sv.eln_st(Tn)
     elif xsec_eln == 'stacey_thomas':
         sv_eln = sv.eln_st(Tn)
     elif xsec_eln == 'degas':
-        print 'degas elastic scattering cross sections not available. Using Stacey-Thomas instead..'
+        print('degas elastic scattering cross sections not available. Using Stacey-Thomas instead..')
         sv_eln = sv.eln_st(Tn)
     return sv_eln
 
@@ -2759,7 +2759,7 @@ if __name__ == "__main__":
     sv = calc_xsec()
     output = sv.ione_degas(1E15, 1E-1)
 
-    print output
+    print(output)
     #plt.imshow(output)
     #plt.colorbar()
 

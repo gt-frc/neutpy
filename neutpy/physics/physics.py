@@ -133,31 +133,31 @@ def calc_mfp(Tn, n, sv, en_grp):
     if np.any(np.isnan(mfp)):
         array_type = 'cell' if Tn.ndim == 2 else 'face'
         nan_locs = np.argwhere(np.isnan(mfp))
-        print 'an NAN was found in the '+array_type+' '+en_grp+' mfp array'
-        print 'indices:'
-        print nan_locs
-        print
-        print 'vn at those indices'
-        print vn[nan_locs]
-        print
-        print 'ne at those indices'
-        print ne[nan_locs]
-        print
-        print 'ni at those indices'
-        print svion[nan_locs]
-        print
-        print 'svion at those indices'
-        print vn[nan_locs]
-        print
-        print 'svcx at those indices'
-        print svcx[nan_locs]
-        print
-        print 'svel at those indices'
-        print svel[nan_locs]
-        print
-        print 'mfp array'
-        print mfp
-        print 'stopping.'
+        print('an NAN was found in the '+array_type+' '+en_grp+' mfp array')
+        print('indices:')
+        print(nan_locs)
+        print()
+        print('vn at those indices')
+        print(vn[nan_locs])
+        print()
+        print('ne at those indices')
+        print(ne[nan_locs])
+        print()
+        print('ni at those indices')
+        print(svion[nan_locs])
+        print()
+        print('svion at those indices')
+        print(vn[nan_locs])
+        print()
+        print('svcx at those indices')
+        print(svcx[nan_locs])
+        print()
+        print('svel at those indices')
+        print(svel[nan_locs])
+        print()
+        print('mfp array')
+        print(mfp)
+        print('stopping.')
         sys.exit()
 
 

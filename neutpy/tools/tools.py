@@ -9,7 +9,7 @@ import sys
 from math import pi, sqrt, degrees, acos
 import os
 import pandas as pd
-import warnings
+import _warnings
 from scipy.constants import physical_constants
 from shapely.geometry import LineString, Point
 
@@ -41,11 +41,6 @@ def iterate_namedtuple(object, df):
     else:
         pass
     return df
-
-# isclose is included in python3.5+, so you can delete this if the code ever gets ported into python3.5+
-def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
-    return abs(a - b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
-
 
 def print_progress(iteration, total, prefix='', suffix='', decimals=0, bar_length=50):
     """creates a progress bar
@@ -182,7 +177,7 @@ class NeutpyTools:
         self.vars['flux_tot_ycomp'] = flux_tot_ycomp
         self.vars['flux_tot_mag'] = flux_tot_mag
 
-        print 'attempting to start plot_cell_vals'
+        print('attempting to start plot_cell_vals')
         self.plot_cell_vals()
 
 
@@ -332,10 +327,10 @@ def listToFloatChecker(val, message, verbose=False):
         if len(val) > 1:
             raise ValueError(message)
         elif len(val) == 1:
-            if verbose: warnings.warn("List value of len 1 found")
+            if verbose: _warnings.warn("List value of len 1 found")
             return val[0]
         else:
-            if verbose: warnings.warn("List value of len 0 found")
+            if verbose: _warnings.warn("List value of len 0 found")
             return val
     else:
         return val

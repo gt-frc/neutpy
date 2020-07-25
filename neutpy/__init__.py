@@ -56,7 +56,7 @@ from collections import namedtuple
 from neutpy.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, calc_svione, calc_xsec
 from neutpy.physics import calc_mfp, calc_X_i, calc_P_0i, calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, \
     calc_ext_src
-from neutpy.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker, calc_fsa, \
+from neutpy.tools import cut, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker, calc_fsa, \
     calc_cell_pts
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -91,7 +91,7 @@ class neutrals:
         self.ionDens = None
         self.cpu_cores = 1
         self.config_loc = "neutpy.conf"
-        print 'INITIALIZING NEUTPY'
+        print('INITIALIZING NEUTPY')
 
         sys.dont_write_bytecode = True
         self.verbose = verbose
@@ -116,41 +116,41 @@ class neutrals:
         """
         self._read_config(infile)
         if self.verbose:
-            print 'Generating separatrix lines'
+            print('Generating separatrix lines')
         self._get_sep_lines()
 
         if self.verbose:
-            print 'Generating core lines'
+            print('Generating core lines')
         self._get_core_lines()
 
         if self.verbose:
-            print 'Generating scrape-off layer lines'
+            print('Generating scrape-off layer lines')
         self._get_sol_lines()
 
         if self.verbose:
-            print 'Generating private flux region'
+            print('Generating private flux region')
         self._pfr_lines()
 
         if self.verbose:
-            print 'Generating core background plasma'
+            print('Generating core background plasma')
         self._core_nT()
 
         if self.verbose:
-            print 'Generating scrape-off layer'
+            print('Generating scrape-off layer')
         self._sol_nT()
 
         if self.verbose:
-            print 'Generating private flux region'
+            print('Generating private flux region')
         self._pfr_nT()
 
         if self.verbose:
-            print 'Running Triangle meshing routine'
+            print('Running Triangle meshing routine')
 
         self._triangle_prep()
         self._read_triangle()
 
         if self.verbose:
-            print 'Running neutrals calculation'
+            print('Running neutrals calculation')
         self._run()
 
         # get vertices in R, Z geometry
@@ -212,7 +212,7 @@ class neutrals:
                             self.xpt = np.array([ints.x, ints.y])
 
                         # uncomment this line when debugging
-                        # print list(ints.coords), d2psidR2(ints.x, ints.y), d2psidZ2(ints.x, ints.y)
+                        # print(list(ints.coords), d2psidR2(ints.x, ints.y), d2psidZ2(ints.x, ints.y))
                 except:
                     pass
 
@@ -400,7 +400,7 @@ class neutrals:
         # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.999))/2)
         if num_lines == 1:
             # then we're definitely dealing with a surface inside the seperatrix
-            print 'Did not find PFR flux surface. Stopping.'
+            print('Did not find PFR flux surface. Stopping.')
             sys.exit()
         else:
             # we need to find the surface that is contained within the private flux region
@@ -987,9 +987,9 @@ class neutrals:
         # GET POINTS FOR TRIANGULATION
         # main seperatrix
 
-        print 'Number of poloidal points in core: ', self.core_pol_pts
-        print 'Number of inbooard poloidal points at the divertor: ', self.ib_div_pol_pts
-        print 'Number of outboard poloidal points at the divertor', self.ob_div_pol_pts
+        print('Number of poloidal points in core: ', self.core_pol_pts)
+        print('Number of inbooard poloidal points at the divertor: ', self.ib_div_pol_pts)
+        print('Number of outboard poloidal points at the divertor', self.ob_div_pol_pts)
 
         sep_pts = np.zeros((self.core_pol_pts, 2))
         for i, v in enumerate(np.linspace(0, 1, self.core_pol_pts, endpoint=False)):
@@ -1132,7 +1132,7 @@ class neutrals:
             pass
 
         try:
-            print self.tri_min_area
+            print(self.tri_min_area)
             tri_options = tri_options + 'a' + str(self.tri_min_area)
         except:
             pass
@@ -1140,14 +1140,14 @@ class neutrals:
         tri_options = tri_options + 'nz'
         # call triangle
         try:
-            print tri_options
+            print(tri_options)
             call(['triangle', tri_options, filepath])
         except AttributeError:
             try:
                 call(['triangle', tri_options, filepath])
             except:
-                print 'triangle could not be found. Stopping.'
-                sys.exit
+                print('triangle could not be found. Stopping.')
+                sys.exit()
 
     def _read_triangle(self):
         # # READ TRIANGLE OUTPUT
@@ -1176,7 +1176,7 @@ class neutrals:
         with open(elepath, 'r') as tri_file:
             tricount = re.findall(r'\d+', next(tri_file))
             nTri = int(tricount[0])
-            print 'number of triangles = ', nTri
+            print('number of triangles = ', nTri)
             triangles = np.zeros((nTri, 3))
             tri_regions = np.zeros(nTri)
             for i in range(0, nTri):
@@ -1553,7 +1553,7 @@ class neutrals:
         self.psi = self.psirz_exp[:, 2].reshape(-1, 65)
 
     def _read_neutpy_in(self, infile):
-        print ('READING NEUTPY INPUT FILE')
+        print('READING NEUTPY INPUT FILE')
 
         # populate 0d variables. Need to do this first to calculate the sizes of the other arrays
         with open(infile, 'r') as toneut:
@@ -1781,7 +1781,7 @@ class neutrals:
 
         time1 = time.time()
         minutes, seconds = divmod(time1 - time0, 60)
-        if self.verbose: print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
+        if self.verbose: print('NEUTPY TIME = {} min, {} sec'.format(minutes, seconds))
         self.nn_s_raw = self.cell_nn_s
         self.nn_t_raw = self.cell_nn_t
         self.nn_raw = self.nn_s_raw + self.nn_t_raw
@@ -1907,7 +1907,7 @@ class neutrals:
             x2, y2 = x_coords[reg + 1], y_coords[reg + 1]
 
             # calculate intersection point
-            if isclose(x2, x1):  # then line is vertical
+            if np.isclose(x2, x1):  # then line is vertical
                 x_int = x1
                 y_int = tan(phi) * x_int
             else:
@@ -1929,7 +1929,7 @@ class neutrals:
         outof = np.sum(self.nSides[:self.nCells] ** 2)
 
         start_time = time.time()
-        print "Start time: %s" % start_time
+        print("Start time: %s" % start_time)
 
         cord_list = list(np.ndenumerate(T_coef_s))
         # for (i, j, k), val in np.ndenumerate(T_coef_s):
@@ -1955,17 +1955,17 @@ class neutrals:
         # Use all but one CPU by default
         if cpu_cores > cpu_count():
             pool = Pool(cpu_count() - 1)
-            print "T_coef calculation running on %s cores." % cpu_count() - 1
+            print("T_coef calculation running on %s cores." % cpu_count() - 1)
         else:
             pool = Pool(cpu_cores)
-            print "T_coef calculation running on %s cores." % cpu_cores
+            print("T_coef calculation running on %s cores." % cpu_cores)
 
         self.coef_results = pool.map(partial(coeff_calc, **kwargs), cord_list)
 
         # result = [(0, 0, 0, 0, 0)] * (self.nCells * 4 * 4)
 
         end_time = time.time()
-        print "Total: %s" % (end_time - start_time)
+        print("Total: %s" % (end_time - start_time))
 
         for (i, j, k, s, t, f, to, via) in self.coef_results:
             T_from[i, j, k] = f
@@ -2362,8 +2362,8 @@ class neutrals:
                                 1.0 - cell.P0i.t[cell_io]) * cell.ci.t[cell_io] * cell.Pi.t[cell_io] * face.lfrac[
                                                                     face_to_loc])
                         if incoming_flux < 0:
-                            print 'incoming flux less than zero'
-                            print 'stopping'
+                            print('incoming flux less than zero')
+                            print('stopping')
                             sys.exit()
 
         # CREATE FINAL MATRIX AND SOLVE
@@ -2484,8 +2484,8 @@ class neutrals:
             if v1 < 0:
                 # get neutral densities of adjacent cells
                 # average the positive values
-                print i, 'Found a negative density. Fixing by using average of surrounding cells.'
-                # print 'You probably need to adjust the way you are calculating the transmission coefficients.'
+                print(i, 'Found a negative density. Fixing by using average of surrounding cells.')
+                # print('You probably need to adjust the way you are calculating the transmission coefficients.')
                 nn_sum = 0
                 nn_count = 0
                 for j, v2 in enumerate(self.adjCell[i]):
@@ -2508,15 +2508,15 @@ class neutrals:
 
         return izn_rate, nn
 
-        # print 'Checking particle balance...'
+        # print('Checking particle balance...')
         # relerr = abs(np.sum(flux_out_tot)+np.sum(cell_izn_rate)-np.sum(flux_in_tot))/ \
         # ((np.sum(flux_out_tot)+np.sum(cell_izn_rate)+np.sum(flux_in_tot))/2)
         # if relerr<0.001: # this is arbitrary. It's just here to alert if there's a problem in the particle balance.
-        # print 'Particle balance passes. {5.3f}% relative error.'.format(relerr*100)
+        # print('Particle balance passes. {5.3f}% relative error.'.format(relerr*100))
         # else:
-        # print 'Particle balance failed. {}% relative error.'.format(relerr*100)
+        # print('Particle balance failed. {}% relative error.'.format(relerr*100))
         # for i, (v1, v2) in enumerate(zip(flux_in_tot, flux_out_tot)):
-        # print i, np.sum(v1), np.sum(v2)+cell_izn_rate[i]
+        # print(i, np.sum(v1), np.sum(v2)+cell_izn_rate[i])
 
     def set_config(self, f):
         """
@@ -2626,17 +2626,17 @@ class neutrals:
         try:
             import matplotlib.colors as colors
         except ImportError:
-            print ImportError("Matplotlib Colors module not found.")
+            print(ImportError("Matplotlib Colors module not found."))
             return
         try:
             from matplotlib.patches import Polygon
         except ImportError:
-            print ImportError("Matplotlib Polygon module not found")
+            print(ImportError("Matplotlib Polygon module not found"))
             return
         try:
             from matplotlib.collections import PatchCollection
         except ImportError:
-            print ImportError("Matplotlib PatchCollection module not found")
+            print(ImportError("Matplotlib PatchCollection module not found"))
             return
 
         if logscale:
