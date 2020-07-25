@@ -61,7 +61,6 @@ from neutpy.tools import cut, isclose, isinline, draw_line, getangle, getangle3p
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
-import matplotlib.pyplot as plt
 from scipy.interpolate import griddata, UnivariateSpline
 from scipy.constants import elementary_charge
 from shapely.geometry import Point, LineString, LinearRing
@@ -70,13 +69,20 @@ from math import degrees, sqrt, pi
 import sys, os, re, json, yaml
 from subprocess import call
 import time
+
 import ConfigParser
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    raise ImportError("Matplotlib failed to import and is a required package.")
 
 
 class neutrals:
 
 
     def __init__(self, verbose=False):
+
         self.lsides = None
         self.elecTemp = None
         self.nCells = None
@@ -149,6 +155,7 @@ class neutrals:
 
         # get vertices in R, Z geometry
         self.xs, self.ys = calc_cell_pts(self)
+        return self
 
     def _get_sep_lines(self):
         """
@@ -2593,35 +2600,86 @@ class neutrals:
                 self.flux.inc.t[i, 2]))
         f.close()
 
-    def plot_dens_slow_1D(self):
-        y_tmp = np.nan_to_num(griddata(np.column_stack((self.midpts[:, 0], self.midpts[:, 1])),
-                                       self.nn.s,
-                                       (self.R, self.Z),
-                                       method="linear"))
-        fig = plt.pcolormesh(self.R, self.Z, y_tmp)
+    def plot_cell_lines(self):
 
+        # plot cell diagram
+        # grid = plt.figure(figsize=(160,240))
+        grid = plt.figure(figsize=(8, 12))
+        ax1 = grid.add_subplot(111)
+        ax1.set_title('Neutrals Mesh', fontsize=30)
+        ax1.set_ylabel(r'Z ($m$)', fontsize=30)
+        ax1.set_xlabel(r'R ($m$)', fontsize=30)
+        ax1.tick_params(labelsize=15)
+        ax1.axis('equal')
+        for i, (v1, v2) in enumerate(zip(self.xs, self.ys)):
+            # if neut.nSides[i] == len(v1):
+            v1 = np.append(v1, v1[0])
+            v2 = np.append(v2, v2[0])
+            # elif neut.nSides[i] == 3 and len(v1) == 4:
+            #    v1[3] = v1[0]
+            # elif neut.nSides[i]==3 and len(v1)==3:
+            #    v1 = np.append(v1,v1[0])
+            #    v2 = np.append(v2,v2[0])
+            ax1.plot(v1, v2, color='black', lw=1)
 
-    def plot_dens_thermal_1D(self):
-        y_tmp = np.nan_to_num(griddata(np.column_stack((self.midpts[:, 0], self.midpts[:, 1])),
-                                       self.nn.t,
-                                       (self.R, self.Z),
-                                       method="linear"))
-        plt.pcolormesh(self.R, self.Z, y_tmp)
+    def _plot_cell_val(self, var, title, nSides=None, logscale=False, cmap='viridis'):
+        try:
+            import matplotlib.colors as colors
+        except ImportError:
+            print ImportError("Matplotlib Colors module not found.")
+            return
+        try:
+            from matplotlib.patches import Polygon
+        except ImportError:
+            print ImportError("Matplotlib Polygon module not found")
+            return
+        try:
+            from matplotlib.collections import PatchCollection
+        except ImportError:
+            print ImportError("Matplotlib PatchCollection module not found")
+            return
 
-    def plot_dens_total_1D(self):
-        y_tmp = np.nan_to_num(griddata(np.column_stack((self.midpts[:, 0], self.midpts[:, 1])),
-                                       self.nn.tot,
-                                       (self.R, self.Z),
-                                       method="linear"))
-        plt.pcolormesh(self.R, self.Z, y_tmp)
+        if logscale:
+            colors = np.log10(var)
+        else:
+            colors = var
 
+        patches = []
+        for i, v in enumerate(var):
+            if nSides is not None:
+                verts = np.column_stack((self.xs[i, :nSides[i]], self.ys[i, :nSides[i]]))
+            else:
+                verts = np.column_stack((self.xs[i, :3], self.ys[i, :3]))
 
+            polygon = Polygon(verts, closed=True)
+            patches.append(polygon)
 
+        collection1 = PatchCollection(patches, cmap=cmap)
+        collection1.set_array(np.array(colors))
 
+        fig, ax1 = plt.subplots(figsize=(8, 12))
+        cax = ax1.add_collection(collection1)
+        ax1.axis('equal')
+        ax1.set_title(title, fontsize=24)
+        ax1.set_ylabel(r'Z ($m$)', fontsize=24)
+        ax1.set_xlabel(r'R ($m$)', fontsize=24)
+        ax1.tick_params(labelsize=24)
+        cb = fig.colorbar(cax)
+        cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=24)
+
+    def plot_2D_dens_total(self):
+        self._plot_cell_val(self.nn.tot, "Total Neutral Density")
+
+    def plot_2D_dens_therm(self):
+        self._plot_cell_val(self.nn.t, "Thermal Neutral Density")
+
+    def plot_2D_dens_slow(self):
+        self._plot_cell_val(self.nn.s, "Slow Neutral Density")
 
 if __name__ == "__main__":
     neuts = neutrals()
     neuts.from_file("inputs/144977_3000/toneutpy.conf")
-    neuts.plot_dens_slow_1D()
-    neuts.plot_dens_thermal_1D()
-    neuts.plot_dens_total_1D()
+    neuts.plot_dens_slow()
+    neuts.plot_dens_thermal()
+    neuts.plot_dens_total()
+    neuts.plot_cell_lines()

@@ -5,8 +5,6 @@ from __future__ import division
 import numpy as np
 from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
-from matplotlib.collections import PatchCollection
 import sys
 from math import pi, sqrt, degrees, acos
 import os
@@ -202,65 +200,6 @@ class NeutpyTools:
         #cell_df = iterate_namedtuple(neut.cell, df)
         df.to_csv(os.getcwd() + '/outputs/neutpy_cell_values.txt')
 
-
-    def plot_cell_lines(self, dir=''):
-
-        # plot cell diagram
-        # grid = plt.figure(figsize=(160,240))
-        grid = plt.figure(figsize=(8, 12))
-        ax1 = grid.add_subplot(111)
-        ax1.set_title('Neutrals Mesh', fontsize=30)
-        ax1.set_ylabel(r'Z ($m$)', fontsize=30)
-        ax1.set_xlabel(r'R ($m$)', fontsize=30)
-        ax1.tick_params(labelsize=15)
-        ax1.axis('equal')
-        for i, (v1, v2) in enumerate(zip(self.xs, self.ys)):
-            # if neut.nSides[i] == len(v1):
-            v1 = np.append(v1, v1[0])
-            v2 = np.append(v2, v2[0])
-            # elif neut.nSides[i] == 3 and len(v1) == 4:
-            #    v1[3] = v1[0]
-            # elif neut.nSides[i]==3 and len(v1)==3:
-            #    v1 = np.append(v1,v1[0])
-            #    v2 = np.append(v2,v2[0])
-            ax1.plot(v1, v2, color='black', lw=1)
-        grid.savefig(dir+'neutpy_mesh.png', dpi=300, transparent=True, bbox_inches="tight")
-
-    def plot_cell_vals(self, title='n_n_total', dir=os.getcwd(), nSides=None, logscale=False, cmap='viridis'):
-        print 'beginning plot_cell_cals'
-        var = self.n_n_total
-
-        if logscale:
-            colors = np.log10(var)
-        else:
-            colors = var
-
-        patches = []
-        for i,v in enumerate(var):
-            if nSides is not None:
-                verts = np.column_stack((self.xs[i, :nSides[i]], self.ys[i, :nSides[i]]))
-            else:
-                verts = np.column_stack((self.xs[i, :3], self.ys[i, :3]))
-
-            polygon = Polygon(verts, closed=True)
-            patches.append(polygon)
-
-        collection1 = PatchCollection(patches, cmap=cmap)
-        collection1.set_array(np.array(colors))
-
-        fig, ax1 = plt.subplots(figsize=(8, 12))
-        cax = ax1.add_collection(collection1)
-        ax1.axis('equal')
-        ax1.set_title(title, fontsize=30)
-        ax1.set_ylabel(r'Z ($m$)', fontsize=30)
-        ax1.set_xlabel(r'R ($m$)', fontsize=30)
-        ax1.tick_params(labelsize=30)
-        cb = fig.colorbar(cax)
-        cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=30)
-        print 'attempting to show plot'
-        plt.show()
-        # print 'attempting to save plot in '+dir+'/'+title+'.png'
-        # fig.savefig('figure.png', dpi=300, transparent=True, bbox_inches="tight")
 
     def interp_RZ(self, var):
         x = np.average(self.xs, axis=1)
