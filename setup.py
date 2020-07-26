@@ -8,17 +8,17 @@ deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 
 
 setuptools.setup(
     name="neutpy",
-    version="1.0.4",
+    version="2.0.0",
     author="Maxwell D. Hill, Jonathan J. Roveto",
     install_requires=deps,
     author_email="max.hill@pm.me, veto1024@gmail.com",
-    description="NeutPy - A neutrals code for tokamak fusion reactors",
+    description="NeutPy - A neutrals transport code for plasmas",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/gt-frc/neutpy/",
     packages=setuptools.find_packages(),
     classifiers=[
-        "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3.6",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Development Status :: 4 - Beta",
@@ -26,7 +26,7 @@ setuptools.setup(
         "Natural Language :: English",
         "Topic :: Scientific/Engineering :: Physics"
     ],
-    python_requires='>=2.7',
+    python_requires='>=3.6',
 )
 
 if __name__ == '__main__':

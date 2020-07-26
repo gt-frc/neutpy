@@ -1,7 +1,7 @@
 **NeutPy - A code for the calculation of neutral particle transport in plasmas based
  on the transmission and escape probability method**
 
-NeutPy is the Python 2.x port of GTNEUT, which was written by John Mandrekas.
+NeutPy is the Python3 port of GTNEUT, which was written by John Mandrekas.
 
 GTNEUT is a two-dimensional code for the calculation of the transport of neutral particles in fusion plasmas.
 It is based on the Transmission and Escape Probabilities (TEP) method and can be considered a computationally efficient
