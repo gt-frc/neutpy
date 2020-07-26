@@ -1,7 +1,6 @@
 import json
 from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
-import time
 
 from cell import Cell
 
@@ -13,14 +12,16 @@ class Neutpy:
             cell_data = json.load(f)
 
         # populate cells (this could be parallelized, but probably doesn't need it)
-        self.cells = []
+        self.cells = {}
 
-        for cell in cell_data.keys():
-            self.cells.append(Cell(**cell_data[cell]))
+        for cellname in cell_data.keys():
+            # instantiate the cell
+            self.cells[cellname] = Cell(cellname, **cell_data[cellname])
 
-        # create interfaces (this could be parallelized, but probably doesn't need it)
-        # for cell in self.cells:
-        #    cell.set_interfaces()
+            # create interfaces for the cell
+            adjcells = cell_data[cellname]['adjcells']
+            lengths = cell_data[cellname]['lengths']
+            self.cells[cellname].set_interfaces(adjcells, lengths)
 
         # calculate transmission coefficients (this will need to be parallelized)
         # for cell in self.cells:

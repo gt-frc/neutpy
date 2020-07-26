@@ -12,16 +12,15 @@ class CellEnergyGroup:
 
 
 class Interface:
-    def __init__(self, adjcell, length, albedo):
+    def __init__(self, adjcell, length):
         # set main interface attributes
         self.length = length
         self.adjcell = adjcell
-        self.albedo = albedo
         self.flux = None
 
 
 class Cell:
-    def __init__(self, name=None, cell_type=None, ni=None, ne=None, ti=None, te=None, **kwargs):
+    def __init__(self, name, cell_type=None, ni=None, ne=None, ti=None, te=None, **kwargs):
         self.name = name
         self.cell_type = cell_type  # internal or bdry
         self.ni = ni
@@ -67,7 +66,10 @@ class Cell:
         l_sides = deque([interface.length for interface in self.interfaces])
         l_sides.rotate(1)
 
-    def set_interfaces(self):
+    def set_interfaces(self, adjcells, lengths):
+        self.interfaces = []
+        for adjcell, length in zip(adjcells, lengths):
+            self.interfaces.append(Interface(adjcell, length))
         return
 
     def set_geom(self):
