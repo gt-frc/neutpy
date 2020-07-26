@@ -13,7 +13,6 @@ class Neutpy:
 
         # populate cells (this could be parallelized, but probably doesn't need it)
         self.cells = {}
-
         for cellname in cell_data.keys():
             # instantiate the cell
             self.cells[cellname] = Cell(cellname, **cell_data[cellname])
@@ -23,9 +22,12 @@ class Neutpy:
             lengths = cell_data[cellname]['lengths']
             self.cells[cellname].set_interfaces(adjcells, lengths)
 
-        # calculate transmission coefficients (this will need to be parallelized)
-        # for cell in self.cells:
-        #    cell.set_t_coefs()
+            # calculate transport properties (requires geometry, which is done while setting interfaces
+            self.cells[cellname].set_transport_properties()
+
+            # calculate transmission coefficients (this will need to be parallelized)
+            self.cells[cellname].set_t_coefs()
+
 
         # construct matrix
 
@@ -38,3 +40,6 @@ class Neutpy:
 
 if __name__ == '__main__':
     neuts = Neutpy('example_input.json')
+
+    for cellname, cell in neuts.cells.items():
+        print(cell.mfp)

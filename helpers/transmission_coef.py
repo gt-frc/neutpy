@@ -2,7 +2,7 @@ import numpy as np
 from helpers import midpoint2D, Ki3
 
 
-def li(phi, xi, x_coords, y_coords, reg):
+def li(phi, xi):
     x_coords = x_coords - xi
 
     vert_phis = np.arctan2(y_coords, x_coords)
@@ -32,12 +32,10 @@ def li(phi, xi, x_coords, y_coords, reg):
     return np.sqrt(x_int ** 2 + y_int ** 2)
 
 
-def calc_t_coef(self):
-    def integrand(phi, xi, x_comp, x_coords, y_coords, reg):
-        value = 2 \
-                / (np.pi * -1 * x_comp[-1]) \
-                * np.sin(phi) \
-                * Ki3(li(phi, xi, x_coords, y_coords, reg) / self.mfp)
+def calc_t_coef(length):
+    def integrand(phi, xi, x_comp, length, y_coords, reg, mfp):
+        value =  np.sin(phi) \
+                * Ki3(li(phi, xi, x_coords, y_coords, reg) / mfp)
 
         return value
 
@@ -51,4 +49,4 @@ def calc_t_coef(self):
     def xi_limits(x_comp):
         return [0, -1 * x_comp[-1]]
 
-    return midpoint2D(integrand, phi_limits, xi_limits)
+    return 2 / (np.pi * length) * midpoint2D(integrand, phi_limits, xi_limits)

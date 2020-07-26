@@ -32,7 +32,7 @@ class Cell:
         self.perimeter = None
 
         self.nn = None
-        self.tn = None
+        self.tn = self.ti  # initialize as ti, however calculating tn requires running neutpy iteratively
 
         self.angles = None
 
@@ -53,14 +53,15 @@ class Cell:
         self.t_coefs = None  # each cell with have n*(n-1)/2 transmission coefficients, where n = n_sides
 
         # set cell cross sections
-        # self.set_sv()
+        self.set_sv()
 
+    def set_transport_properties(self):
         # set cell transport related properties
-        # self.set_mfp()
-        # self.set_c_i()
-        # self.set_x_i()
-        # self.set_p_0i()
-        # self.set_p_i()
+        self.set_mfp()
+        self.set_c_i()
+        self.set_x_i()
+        self.set_p_0i()
+        self.set_p_i()
 
     def set_angles(self):
         l_sides = deque([interface.length for interface in self.interfaces])
@@ -70,9 +71,11 @@ class Cell:
         self.interfaces = []
         for adjcell, length in zip(adjcells, lengths):
             self.interfaces.append(Interface(adjcell, length))
-        return
 
-    def set_geom(self):
+        # go ahead and set up the geometry now
+        self.set_geometry()
+
+    def set_geometry(self):
         l_sides = [interface.length for interface in self.interfaces]
         self.area = area_triangle(l_sides)
         self.perimeter = sum(l_sides)
@@ -80,18 +83,18 @@ class Cell:
     def set_sv(self, degas=False):
         # TODO: figure out which temperatures, etc. need to be passed to each of the cross section interpolators
         self.sv_el = sv.el(self.ti, self.tn)
-        self.sv_eln = sv.eln()
+        self.sv_eln = sv.eln(self.tn)
 
         if degas:
-            self.sv_ion_e = 10 ** sv.ion_e_degas()
-            self.sv_ion_i = 10 ** sv.ion_i_degas()
-            self.sv_rec = 10 ** sv.rec_degas()
-            self.sv_cx = 10 ** sv.cx_degas
+            self.sv_ion_e = 10 ** sv.ion_e_degas(self.ne, self.te)
+            self.sv_ion_i = 10 ** sv.ion_i_degas(self.ti, self.tn)
+            self.sv_rec = 10 ** sv.rec_degas(self.ne, self.te)
+            self.sv_cx = 10 ** sv.cx_degas(self.ti, self.tn)
         else:
-            self.sv_ion_e = 10 ** sv.ion_e()
-            self.sv_ion_i = 10 ** sv.ion_i_degas()  # degas library is the only one available
-            self.sv_rec = 10 ** sv.rec()
-            self.sv_cx = 10 ** sv.cx()
+            self.sv_ion_e = 10 ** sv.ion_e(self.ne, self.te)
+            self.sv_ion_i = 10 ** sv.ion_i_degas(self.ti, self.tn)  # degas library is the only one available
+            self.sv_rec = 10 ** sv.rec(self.ne, self.te)
+            self.sv_cx = 10 ** sv.cx(self.ti, self.tn)
         return
 
     def set_mfp(self):
