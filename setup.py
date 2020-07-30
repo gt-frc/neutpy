@@ -8,7 +8,7 @@ deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 
 
 setuptools.setup(
     name="neutpy",
-    version="1.0.4",
+    version="0.0.1",
     author="Maxwell D. Hill, Jonathan J. Roveto",
     install_requires=deps,
     author_email="max.hill@pm.me, veto1024@gmail.com",
@@ -30,4 +30,5 @@ setuptools.setup(
 )
 
 if __name__ == '__main__':
+    print "Test"
     pass
