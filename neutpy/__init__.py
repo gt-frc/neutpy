@@ -157,6 +157,49 @@ class neutrals:
         self.xs, self.ys = calc_cell_pts(self)
         return self
 
+    def from_gt3(self, gt3):
+
+        config = ConfigParser.RawConfigParser()
+        config.read(self.config_loc)
+        # Collect configuration from main configuration file
+
+        self.verbose = config.getint('Data', 'verbose')
+        self.cpu_cores = config.getint('Data', 'cpu_cores')
+        self.corelines_begin = config.getfloat('Data', 'corelines_begin')
+        self.num_corelines = config.getint('Data', 'num_corelines')
+        self.sollines_psi_max = config.getfloat('Data', 'sollines_psi_max')
+        self.num_sollines = config.getint('Data', 'num_sollines')
+        self.xi_sep_pts = config.getint('Data', 'xi_sep_pts')
+        self.ib_trim_off = config.getfloat('Data', 'ib_trim_off')
+        self.ob_trim_off = config.getfloat('Data', 'ob_trim_off')
+        self.xi_ib_pts = config.getint('Data', 'xi_ib_pts')
+        self.xi_ob_pts = config.getint('Data', 'xi_ob_pts')
+        self.core_pol_pts = config.getint('Data', 'core_pol_pts')
+        self.ib_div_pol_pts = config.getint('Data', 'ib_div_pol_pts')
+        self.ob_div_pol_pts = config.getint('Data', 'ob_div_pol_pts')
+        self.pfr_ni_val = config.getfloat('Data', 'pfr_ni_val')
+        self.pfr_ne_val = config.getfloat('Data', 'pfr_ne_val')
+        self.pfr_Ti_val = config.getfloat('Data', 'pfr_Ti_val')
+        self.pfr_Te_val = config.getfloat('Data', 'pfr_Te_val')
+        self.tri_min_area = config.getfloat('Data', 'tri_min_area')
+        self.tri_min_angle = config.getfloat('Data', 'tri_min_angle')
+
+        # Pull in data from the input file
+
+        self.ne_data = gt3.core.n.e[:, 0]
+        self.ni_data = gt3.core.n.i[:, 0]
+        self.Te_data = gt3.core.T.e[:, 0]
+        self.Ti_data = gt3.core.T.i[:, 0]
+
+        # Get plasma parameters
+
+        self.BT0 = gt3.inp.BT0
+
+        self.wall_line = LineString(self.wall_exp)
+        self.R = gt3.core.psi_data.R
+        self.Z = gt3.core.psi_data.Z
+        self.psi = gt3.core.psi_data.psi
+
     def _get_sep_lines(self):
         """
         Generate the separatric lines
