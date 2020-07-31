@@ -157,7 +157,7 @@ class neutrals:
         self.xs, self.ys = calc_cell_pts(self)
         return self
 
-    def from_gt3(self, gt3):
+    def from_gt3(self, gt3_core, gt3_inp):
 
         config = ConfigParser.RawConfigParser()
         config.read(self.config_loc)
@@ -186,19 +186,19 @@ class neutrals:
 
         # Pull in data from the input file
 
-        self.ne_data = gt3.core.n.e[:, 0]
-        self.ni_data = gt3.core.n.i[:, 0]
-        self.Te_data = gt3.core.T.e[:, 0]
-        self.Ti_data = gt3.core.T.i[:, 0]
+        self.ne_data = gt3_core.n.e[:, 0]
+        self.ni_data = gt3_core.n.i[:, 0]
+        self.Te_data = gt3_core.T.e[:, 0]
+        self.Ti_data = gt3_core.T.i[:, 0]
 
         # Get plasma parameters
 
-        self.BT0 = gt3.inp.BT0
+        self.BT0 = gt3_inp.BT0
 
-        self.wall_line = LineString(self.wall_exp)
-        self.R = gt3.core.psi_data.R
-        self.Z = gt3.core.psi_data.Z
-        self.psi = gt3.core.psi_data.psi
+        self.wall_line = gt3_inp.wall_line
+        self.R = gt3_core.psi_data.R
+        self.Z = gt3_core.psi_data.Z
+        self.psi = gt3_core.psi_data.psi
 
     def _get_sep_lines(self):
         """
