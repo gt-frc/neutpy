@@ -188,8 +188,8 @@ class neutrals:
 
         self.ne_data = gt3_core.n.e[:, 0]
         self.ni_data = gt3_core.n.i[:, 0]
-        self.Te_data = gt3_core.T.e[:, 0]
-        self.Ti_data = gt3_core.T.i[:, 0]
+        self.Te_data = gt3_core.T.e.kev[:, 0]
+        self.Ti_data = gt3_core.T.i.kev[:, 0]
 
         # Get plasma parameters
 
@@ -199,6 +199,48 @@ class neutrals:
         self.R = gt3_core.psi_data.R
         self.Z = gt3_core.psi_data.Z
         self.psi = gt3_core.psi_data.psi
+
+        if self.verbose:
+            print 'Generating separatrix lines'
+        self._get_sep_lines()
+
+        if self.verbose:
+            print 'Generating core lines'
+        self._get_core_lines()
+
+        if self.verbose:
+            print 'Generating scrape-off layer lines'
+        self._get_sol_lines()
+
+        if self.verbose:
+            print 'Generating private flux region'
+        self._pfr_lines()
+
+        if self.verbose:
+            print 'Generating core background plasma'
+        self._core_nT()
+
+        if self.verbose:
+            print 'Generating scrape-off layer'
+        self._sol_nT()
+
+        if self.verbose:
+            print 'Generating private flux region'
+        self._pfr_nT()
+
+        if self.verbose:
+            print 'Running Triangle meshing routine'
+
+        self._triangle_prep()
+        self._read_triangle()
+
+        if self.verbose:
+            print 'Running neutrals calculation'
+        self._run()
+
+        # get vertices in R, Z geometry
+        self.xs, self.ys = calc_cell_pts(self)
+        return self
 
     def _get_sep_lines(self):
         """
@@ -272,7 +314,16 @@ class neutrals:
         plt.figure()
         plt.contour(self.R, self.Z, self.psi_norm, [1])
 
-        num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [1]).collections[0].get_paths()))
+        """Filter lines that are too short/are possibly artifacts"""
+        paths = plt.contour(self.R, self.Z, self.psi_norm, [1]).collections[0].get_paths()
+        for i, path in enumerate(paths):
+            ls = LineString(path.vertices)
+            if ls.length <= 0.5:
+                del paths[i]
+                print Warning("Matplotlib returned separatrix line with 3 segmments. Attempting to remove"
+                              "line with length < 0.5m")
+
+        num_lines = int(len(paths))
         if num_lines == 1:
             # in this case, the contour points that matplotlib returned constitute
             # a single line from inboard divertor to outboard divertor. We need to
@@ -2721,6 +2772,7 @@ class neutrals:
 
 if __name__ == "__main__":
     neuts = neutrals()
+    #neuts.from_file("inputs/164436_3740/toneutpy.conf")
     neuts.from_file("inputs/144977_3000/toneutpy.conf")
     neuts.plot_dens_slow()
     neuts.plot_dens_thermal()
