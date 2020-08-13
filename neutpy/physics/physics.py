@@ -7,7 +7,6 @@ Various physics-ish functions for neutpy
 from __future__ import division
 import numpy as np
 from scipy import integrate
-import sys
 from math import pi
 from math import sin, exp, sqrt
 from collections import namedtuple
@@ -158,7 +157,7 @@ def calc_mfp(Tn, n, sv, en_grp):
         print 'mfp array'
         print mfp
         print 'stopping.'
-        sys.exit()
+        raise
 
 
     return mfp
