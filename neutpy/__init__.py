@@ -48,7 +48,8 @@ from __future__ import division
 
 from math import tan
 import numpy as np
-from scipy.interpolate import interp1d
+from scipy.interpolate.rbf import Rbf
+from scipy.interpolate import interp1d, interp2d
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
 from neutpy.parallelNeut import coeff_calc
@@ -64,7 +65,7 @@ from pathos.multiprocessing import cpu_count
 from scipy.interpolate import griddata, UnivariateSpline
 from scipy.constants import elementary_charge
 from shapely.geometry import Point, LineString, LinearRing
-from shapely.ops import polygonize, linemerge
+from shapely.ops import polygonize, linemerge, split
 from math import degrees, sqrt, pi
 import sys, os, re, json, yaml
 from subprocess import call
@@ -123,6 +124,7 @@ class neutrals:
             print 'Generating core lines'
         self._get_core_lines()
 
+
         if self.verbose:
             print 'Generating scrape-off layer lines'
         self._get_sol_lines()
@@ -151,7 +153,13 @@ class neutrals:
 
         if self.verbose:
             print 'Running neutrals calculation'
-        self._run()
+        try:
+            self._run()
+        except Exception as e:
+            print """
+            *****************************
+            NeutPy failed with error: %s
+            """ % str(e)
 
         # get vertices in R, Z geometry
         self.xs, self.ys = calc_cell_pts(self)
@@ -275,29 +283,54 @@ class neutrals:
                     # dealing with irrelevant noise in psi
                     if ints.type == 'Point':
                         # check if local maximum or minimum
-                        d2psidR2_pt = griddata(np.column_stack((self.R.flatten(), self.Z.flatten())),
-                                               d2psidR2.flatten(),
-                                               [ints.x, ints.y],
-                                               method='cubic')
-                        d2psidZ2_pt = griddata(np.column_stack((self.R.flatten(), self.Z.flatten())),
-                                               d2psidZ2.flatten(),
-                                               [ints.x, ints.y],
-                                               method='cubic')
-
-                        if d2psidR2_pt > 0 and d2psidZ2_pt > 0:
+                        # If the point is within the walls and less than 0.5m from the vessel centroid, this is
+                        # very likely the magnetic axis
+                        if self.wall_line.convex_hull.contains(ints) and self.wall_line.centroid.distance(ints) < 0.5:
                             # we've found the magnetic axis
                             self.m_axis = np.array([ints.x, ints.y])
-                        elif d2psidR2_pt < 0 and d2psidZ2_pt < 0:
+                        # If the point is not inside the walls, it's a magnet
+                        elif not self.wall_line.convex_hull.contains(ints):
                             # we've found a magnet. Do nothing.
                             pass
-                        elif ints.y < 0:
-                            # we've probably found our x-point, although this isn't super robust
-                            # and obviously only applies to a single-diverted, lower-null configuration
-                            # TODO: make this more robust, I could easily see this failing on some shots
+                        elif self.wall_line.convex_hull.contains(ints) and ints.y < 0:
+                            # The point is within the walls and not near the magnetic axis. This is likely the
+                            # lower x-point.
+                            # TODO: Provides lower x-point here, but upper x-point can be built out
                             self.xpt = np.array([ints.x, ints.y])
+                            self.xpt_l = self.xpt
+                        elif self.wall_line.convex_hull.contains(ints) and ints.y > 0:
+                            # This is an upper x-point. This functionality needs to be built in but is here for
+                            # later
+                            self.xpt_u = np.array([ints.x, ints.y])
 
                         # uncomment this line when debugging
                         # print list(ints.coords), d2psidR2(ints.x, ints.y), d2psidZ2(ints.x, ints.y)
+
+                    #If multiple points are found, the flux surfaces may have come back around onto each other.
+                    if ints.type == 'MultiPoint':
+                        for point in ints:
+                            # check if local maximum or minimum
+                            # If the point is within the walls and less than 0.5m from the vessel centroid, this is
+                            # very likely the magnetic axis
+                            if self.wall_line.convex_hull.contains(point) and self.wall_line.centroid.distance(
+                                    point) < 0.5:
+                                # we've found the magnetic axis
+                                self.m_axis = np.array([point.x, point.y])
+                            # If the point is not inside the walls, it's a magnet
+                            elif not self.wall_line.convex_hull.contains(point):
+                                # we've found a magnet. Do nothing.
+                                pass
+                            elif self.wall_line.convex_hull.contains(point) and point.y < 0:
+                                # The point is within the walls and not near the magnetic axis. This is likely the
+                                # lower x-point.
+                                # TODO: Provides lower x-point here, but upper x-point can be built out
+                                self.xpt = np.array([point.x, point.y])
+                                self.xpt_l = self.xpt
+                            elif self.wall_line.convex_hull.contains(point) and point.y > 0:
+                                # This is an upper x-point. This functionality needs to be built in but is here for
+                                # later
+                                self.xpt_u = np.array([point.x, point.y])
+
                 except:
                     pass
 
@@ -314,16 +347,22 @@ class neutrals:
         plt.figure()
         plt.contour(self.R, self.Z, self.psi_norm, [1])
 
-        """Filter lines that are too short/are possibly artifacts"""
-        paths = plt.contour(self.R, self.Z, self.psi_norm, [1]).collections[0].get_paths()
-        for i, path in enumerate(paths):
-            ls = LineString(path.vertices)
-            if ls.length <= 0.5:
-                del paths[i]
-                print Warning("Matplotlib returned separatrix line with 3 segmments. Attempting to remove"
-                              "line with length < 0.5m")
+        # Filter lines that are possibly artifacts
+        all_paths = plt.contour(self.R, self.Z, self.psi_norm, [1]).collections[0].get_paths()
+        paths = []
+        for a in all_paths:
+            ls = LineString(a.vertices)
 
-        num_lines = int(len(paths))
+            # If a line does not intersect the wall and it is not contained in the convex hull, do not add it since
+            # it is likely magnets. May need to make this more robust for cases where magnetics just touch the wall
+            # but do not enter, if that's even a remote possibility.
+
+            cut_line = LineString(LineString(ls.coords[:-1]).coords[1:])
+            if (self.wall_line.crosses(ls) or self.wall_line.convex_hull.contains(cut_line)):
+                paths.append(a)
+
+        num_lines = len(paths)
+
         if num_lines == 1:
             # in this case, the contour points that matplotlib returned constitute
             # a single line from inboard divertor to outboard divertor. We need to
@@ -372,40 +411,45 @@ class neutrals:
             # TODO: add point to wall line
 
         elif num_lines == 2:
-            # in this case, we have a lower seperatrix trace (line 0), and a main
-            # seperatrix trace (line 1).
 
-            # first do lower seperatrix line
-            x_psi, y_psi = draw_line(self.R, self.Z, self.psi_norm, 1.0, 0)
-            loc = np.argmax(x_psi > self.xpt[0])
+            for path in paths:
+            # First do lower separatrix
+                if not self.wall_line.convex_hull.contains(LineString(path.vertices)):
+                    x_psi, y_psi = path.vertices[:,0], path.vertices[:,1]
+                    loc = np.argmax(x_psi > self.xpt[0])
 
-            x_psi = np.insert(x_psi, loc, self.xpt[0])
-            y_psi = np.insert(y_psi, loc, self.xpt[1])
-            psi_1_pts = np.column_stack((x_psi, y_psi))
+                    x_psi = np.insert(x_psi, loc, self.xpt[0])
+                    y_psi = np.insert(y_psi, loc, self.xpt[1])
+                    psi_1_pts = np.column_stack((x_psi, y_psi))
 
-            self.inboard_div_sep = np.flipud(psi_1_pts[:loc + 1])
-            self.outboard_div_sep = psi_1_pts[loc + 1:]
+                    self.inboard_div_sep = np.flipud(psi_1_pts[:loc + 1])
+                    self.outboard_div_sep = psi_1_pts[loc + 1:]
 
-            # cut inboard line at the wall and add intersection point to wall_line
-            line = LineString(self.inboard_div_sep)
-            int_pt = line.intersection(self.wall_line)
-            self.ib_div_line = line
-            self.ib_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
+                    # cut inboard line at the wall and add intersection point to wall_line
+                    line = LineString(self.inboard_div_sep)
+                    int_pt = line.intersection(self.wall_line)
+                    self.ib_div_line = line
+                    self.ib_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
 
-            # cut inboard line at the wall and add intersection point to wall_line
-            line = LineString(self.outboard_div_sep)
-            int_pt = line.intersection(self.wall_line)
-            self.ob_div_line = line
-            self.ob_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
-            # TODO: add point to wall line
+                    # cut inboard line at the wall and add intersection point to wall_line
+                    line = LineString(self.outboard_div_sep)
+                    int_pt = line.intersection(self.wall_line)
+                    self.ob_div_line = line
+                    self.ob_div_line_cut = cut(line, line.project(int_pt, normalized=True))[0]
+                    # TODO: add point to wall line
+                else:
+                    # now to main seperatrix line
+                    x_psi, y_psi = path.vertices[:,0], path.vertices[:,1]
+                    self.main_sep_pts = np.insert(np.column_stack((x_psi, y_psi)), 0, self.xpt, axis=0)
+                    self.main_sep_line = LineString(self.main_sep_pts[:-1])
+                    self.main_sep_line_closed = LineString(path.vertices)
 
-            # now to main seperatrix line
-            x_psi, y_psi = draw_line(self.R, self.Z, self.psi_norm, 1.0, 1)
-            self.main_sep_pts = np.insert(np.column_stack((x_psi, y_psi)), 0, self.xpt, axis=0)
-            self.main_sep_line = LineString(self.main_sep_pts[:-1])
-            self.main_sep_line_closed = LineString(self.main_sep_pts)
+            ib_div_pts = np.flipud(np.asarray(self.ib_div_line_cut.xy).T)
+            sep_pts = np.asarray(self.main_sep_line.xy).T
+            ob_div_pts = np.asarray(self.ob_div_line_cut.xy).T
 
-            entire_sep_pts = np.vstack((self.ib_div_pts, self.sep_pts[1:, :], self.ob_div_pts))
+
+            entire_sep_pts = np.vstack((ib_div_pts, sep_pts[1:, :], ob_div_pts))
             self.entire_sep_line = LineString(entire_sep_pts)
             # now clean up the lines by removing any points that are extremely close
             # to the x-point
@@ -451,15 +495,28 @@ class neutrals:
                 x, y = draw_line(self.R, self.Z, self.psi_norm, v, 0)
                 self.sol_lines.append(LineString(np.column_stack((x, y))))
             else:
-                # TODO:
-                pass
+                # We have 2 lines probably, one on the inboard and one on the outboard sides.
+                big_lines = plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()
+                for a in big_lines:
+                    segs = split(LineString(a.vertices), self.wall_line)
+                    for b in segs:
+                        if self.wall_line.convex_hull.contains(LineString(LineString(b.coords[:-1]).coords[1:])):
+                            self.sol_lines.append(b)
+                    pass
         for line in self.sol_lines:
             # find intersection points with the wall
             int_pts = line.intersection(self.wall_line)
-            # cut line at intersection points
-            cut_line = cut(line, line.project(int_pts[0], normalized=True))[1]
-            cut_line = cut(cut_line, cut_line.project(int_pts[1], normalized=True))[0]
-            self.sol_lines_cut.append(cut_line)
+            # cut line at intersection points if it is not contained by the walls already
+            if not self.wall_line.convex_hull.contains(line):
+                segs = split(line, self.wall_line)
+                for a in segs:
+                    if self.wall_line.convex_hull.contains(LineString(LineString(a.coords[:-1]).coords[1:])):
+                        self.sol_lines_cut.append(line)
+                    else:
+                        pass
+            else:
+                # This line is already contained. Add it.
+                self.sol_lines_cut.append(line)
 
         # add wall intersection points from divertor legs and sol lines to wall_line.
         # This is necessary to prevent thousands of tiny triangles from forming if the
@@ -506,45 +563,12 @@ class neutrals:
                 if (np.amax(y) < np.amin(self.main_sep_pts[:, 1])):
                     # then it's a pfr flux surface, might need to add additional checks later
                     pfr_line_raw = LineString(np.column_stack((x, y)))
-                    # find cut points
-                    cut_pt1 = pfr_line_raw.intersection(self.wall_line)[0]
-                    dist1 = pfr_line_raw.project(cut_pt1, normalized=True)
-                    cutline_temp = cut(pfr_line_raw, dist1)[1]
-
-                    # reverse line point order so we can reliably find the second intersection point
-                    cutline_temp_rev = LineString(np.flipud(np.asarray(cutline_temp.xy).T))
-
-                    cut_pt2 = cutline_temp_rev.intersection(self.wall_line)
-                    dist2 = cutline_temp_rev.project(cut_pt2, normalized=True)
-                    cutline_final_rev = cut(cutline_temp_rev, dist2)[1]
-
-                    # reverse again for final pfr flux line
-                    pfr_flux_line = LineString(np.flipud(np.asarray(cutline_final_rev.xy).T))
-
-                    # add pfr_line intersection points on inboard side
-                    # for some reason, union freaks out when I try to do inboard and outboard
-                    # at the same time.
-                    union = self.wall_line.union(cut(pfr_line_raw, 0.5)[0])
-                    result = [geom for geom in polygonize(union)][0]
-                    self.wall_line = LineString(result.exterior.coords)
-
-                    # add pfr line intersection points on outboard side
-                    union = self.wall_line.union(cut(pfr_line_raw, 0.5)[1])
-                    result = [geom for geom in polygonize(union)][0]
-                    self.wall_line = LineString(result.exterior.coords)
-
-                    # cut out pfr section of wall line
-                    wall_pts = np.asarray(self.wall_line.xy).T
-
-                    # ib_int_pt = np.asarray(self.ib_div_line.intersection(self.wall_line).xy).T
-                    # ob_int_pt = self.ob_div_line.intersection(self.wall_line)
-                    wall_start_pos = np.where((wall_pts == cut_pt2).all(axis=1))[0][0]
-                    wall_line_rolled = LineString(np.roll(wall_pts, -wall_start_pos, axis=0))
-                    wall_line_cut_pfr = cut(wall_line_rolled,
-                                            wall_line_rolled.project(cut_pt1, normalized=True))[0]
-
-                    # create LineString with pfr line and section of wall line
-                    self.pfr_line = linemerge((pfr_flux_line, wall_line_cut_pfr))
+                    # Find intersections
+                    segs = split(pfr_line_raw, self.wall_line)
+                    for a in segs:
+                        if self.wall_line.convex_hull.contains(LineString(LineString(a.coords[:-1]).coords[1:])):
+                            # create LineString with pfr line and section of wall line
+                            self.pfr_line = a
                     break
         # plt.axis('equal')
         # plt.plot(np.asarray(self.wall_line.xy).T[:, 0], np.asarray(self.wall_line.xy).T[:, 1], color='black', lw=0.5)
@@ -670,27 +694,27 @@ class neutrals:
         # get quantities on a fairly fine R, Z grid for the purpose of taking gradients, etc.
         R_temp, Z_temp = np.meshgrid(np.linspace(0.95 * self.ibmp_pt[0], 1.05 * self.obmp_pt[0], 500),
                                      np.linspace(1.05 * self.top_pt[1], 1.05 * self.bot_pt[1], 500))
-
         ni_grid = griddata(self.ni_pts[:, :-1],
                            self.ni_pts[:, -1],
                            (R_temp, Z_temp),
-                           method='cubic',
+                           method='linear',
                            fill_value=self.ni_sep_val)
         ne_grid = griddata(self.ne_pts[:, :-1],
                            self.ne_pts[:, -1],
                            (R_temp, Z_temp),
-                           method='cubic',
+                           method='linear',
                            fill_value=self.ne_sep_val)
         Ti_grid = griddata(self.Ti_kev_pts[:, :-1],
                            self.Ti_kev_pts[:, -1] * 1.0E3 * 1.6021E-19,
                            (R_temp, Z_temp),
-                           method='cubic',
+                           method='linear',
                            fill_value=self.Ti_J_sep_val)
         Te_grid = griddata(self.Te_kev_pts[:, :-1],
                            self.Te_kev_pts[:, -1] * 1.0E3 * 1.6021E-19,
                            (R_temp, Z_temp),
-                           method='cubic',
+                           method='linear',
                            fill_value=self.Te_J_sep_val)
+
 
         dnidr = -1.0 * (np.abs(np.gradient(ni_grid, Z_temp[:, 0], axis=1)) + np.abs(
             np.gradient(ni_grid, R_temp[0, :], axis=0)))
@@ -707,30 +731,30 @@ class neutrals:
         dnidr_sep_raw = griddata(np.column_stack((R_temp.flatten(), Z_temp.flatten())),
                                  dnidr.flatten(),
                                  np.column_stack((x, y)),
-                                 method='cubic'
+                                 method='linear'
                                  )
         dnedr_sep_raw = griddata(np.column_stack((R_temp.flatten(), Z_temp.flatten())),
                                  dnedr.flatten(),
                                  np.column_stack((x, y)),
-                                 method='cubic'
+                                 method='linear'
                                  )
 
         dTidr_sep_raw = griddata(np.column_stack((R_temp.flatten(), Z_temp.flatten())),
                                  dTidr.flatten(),
                                  np.column_stack((x, y)),
-                                 method='cubic'
+                                 method='linear'
                                  )
 
         dTedr_sep_raw = griddata(np.column_stack((R_temp.flatten(), Z_temp.flatten())),
                                  dTedr.flatten(),
                                  np.column_stack((x, y)),
-                                 method='cubic'
+                                 method='linear'
                                  )
 
         BT_sep_raw = griddata(np.column_stack((R_temp.flatten(), Z_temp.flatten())),
                               (self.m_axis[0] * self.BT0 / R_temp).flatten(),
                               np.column_stack((x, y)),
-                              method='cubic'
+                              method='linear'
                               )
 
         # Get densities, temperatures, and other quantities along the inboard divertor leg of seperatrix
@@ -753,32 +777,32 @@ class neutrals:
 
         dnidr_sep = UnivariateSpline(np.linspace(0, 1, len(dnidr_sep_raw)),
                                      dnidr_sep_raw / ni_norm_factor,
-                                     k=5,
-                                     s=0.0)(
+                                     k=1,
+                                     s=2.0)(
             np.linspace(self.ib_trim_off, 1.0 - self.ob_trim_off, self.xi_sep_pts)) * ni_norm_factor
 
         dnedr_sep = UnivariateSpline(np.linspace(0, 1, len(dnedr_sep_raw)),
                                      dnedr_sep_raw / ne_norm_factor,
-                                     k=5,
-                                     s=0.0)(
+                                     k=1,
+                                     s=2.0)(
             np.linspace(self.ib_trim_off, 1.0 - self.ob_trim_off, self.xi_sep_pts)) * ne_norm_factor
 
         dTidr_sep = UnivariateSpline(np.linspace(0, 1, len(dTidr_sep_raw)),
                                      dTidr_sep_raw / Ti_norm_factor,
-                                     k=5,
-                                     s=0.0)(
+                                     k=1,
+                                     s=2.0)(
             np.linspace(self.ib_trim_off, 1.0 - self.ob_trim_off, self.xi_sep_pts)) * Ti_norm_factor
 
         dTedr_sep = UnivariateSpline(np.linspace(0, 1, len(dTedr_sep_raw)),
                                      dTedr_sep_raw / Te_norm_factor,
-                                     k=5,
-                                     s=0.0)(
+                                     k=1,
+                                     s=2.0)(
             np.linspace(self.ib_trim_off, 1.0 - self.ob_trim_off, self.xi_sep_pts)) * Te_norm_factor
 
         BT_sep = UnivariateSpline(np.linspace(0, 1, len(dnidr_sep_raw)),
                                   BT_sep_raw,
-                                  k=5,
-                                  s=0.0)(np.linspace(self.ib_trim_off, 1.0 - self.ob_trim_off, self.xi_sep_pts))
+                                  k=1,
+                                  s=2.0)(np.linspace(self.ib_trim_off, 1.0 - self.ob_trim_off, self.xi_sep_pts))
 
         ni_ib_wall = self.ni_sep_val * 1.0
         ni_ob_wall = self.ni_sep_val * 1.0
@@ -858,20 +882,22 @@ class neutrals:
             self.xi_ob_pts,
             endpoint=True)
 
-        xi_pts = np.concatenate((xi_ib_div, xi_sep, xi_ob_div))
+        self.xi_pts = np.concatenate((xi_ib_div, xi_sep, xi_ob_div))
 
         # model perpendicular particle and heat transport using Bohm Diffusion
         D_perp = Ti_xi / (16.0 * elementary_charge * BT_xi)
         Chi_perp = 5.0 * Ti_xi / (32.0 * elementary_charge * BT_xi)
 
         Gamma_perp = -D_perp * dnidr_xi
-        Q_perp = -ni_xi * Chi_perp * dTidr_xi - \
-                 3.0 * Ti_xi * D_perp * dnidr_xi
+        Q_perp = -ni_xi * Chi_perp * dTidr_xi -  3.0 * Ti_xi * D_perp * dnidr_xi
 
         delta_sol_n = D_perp * ni_xi / Gamma_perp
-        delta_sol_T = Chi_perp / \
-                      (Q_perp / (ni_xi * Ti_xi) \
-                       - 3.0 * D_perp / delta_sol_n)
+        delta_sol_T = Chi_perp / (Q_perp / (ni_xi * Ti_xi) - 3.0 * D_perp / delta_sol_n)
+
+        delta_min = 0.005
+        delta_sol_n[delta_sol_n < delta_min] = delta_min
+        delta_sol_T[delta_sol_T < delta_min] = delta_min
+
         delta_sol_E = 2 / 7 * delta_sol_T
         # plt.plot(delta_sol_n)
 
@@ -916,57 +942,58 @@ class neutrals:
         # method='linear',
         # fill_value='np.nan')
 
+        #TODO: R_max affects the results of the calculation. Need to figure out what this is actually.
+
         r_max = 0.45
+
         twoptdiv_r_pts = 20
 
         r_pts = np.linspace(0, r_max, twoptdiv_r_pts)
-        xi, r = np.meshgrid(xi_pts, r_pts)
-        sol_ni = ni_xi * np.exp(-r / delta_sol_n)
-        sol_ne = ne_xi * np.exp(-r / delta_sol_n)
-        sol_Ti = Ti_xi * np.exp(-r / delta_sol_T)
-        sol_Te = Te_xi * np.exp(-r / delta_sol_T)
+        xi, r = np.meshgrid(self.xi_pts, r_pts)
+        self.sol_ni = ni_xi * np.exp(-r / delta_sol_n[0])
+        self.sol_ne = ne_xi * np.exp(-r / delta_sol_n[0])
+        self.sol_Ti = Ti_xi * np.exp(-r / delta_sol_T[0])
+        self.sol_Te = Te_xi * np.exp(-r / delta_sol_T[0])
 
         # draw sol lines through 2d strip model to get n, T along the lines
-        sol_line_dist = np.zeros((len(xi_pts), len(self.sol_lines_cut)))
-        sol_nT_pts = np.zeros((len(xi_pts), 2, len(self.sol_lines_cut)))
+        sol_line_dist = np.zeros((len(self.xi_pts), len(self.sol_lines_cut)))
+        sol_nT_pts = np.zeros((len(self.xi_pts), 2, len(self.sol_lines_cut)))
         for i, sol_line in enumerate(self.sol_lines_cut):
-            for j, xi_val in enumerate(xi_pts):
+            for j, xi_val in enumerate(self.xi_pts):
                 sol_pt = sol_line.interpolate(xi_val, normalized=True)
                 sol_nT_pts[j, :, i] = np.asarray(sol_pt.xy).T
                 sep_pt_pos = self.entire_sep_line.project(sol_pt, normalized=True)
                 sep_pt = self.entire_sep_line.interpolate(sep_pt_pos, normalized=True)
                 sol_line_dist[j, i] = sol_pt.distance(sep_pt)
 
-        sol_line_ni = np.zeros((len(xi_pts), len(self.sol_lines_cut)))
-        sol_line_ne = np.zeros((len(xi_pts), len(self.sol_lines_cut)))
-        sol_line_Ti = np.zeros((len(xi_pts), len(self.sol_lines_cut)))
-        sol_line_Te = np.zeros((len(xi_pts), len(self.sol_lines_cut)))
+        sol_line_ni = np.zeros((len(self.xi_pts), len(self.sol_lines_cut)))
+        sol_line_ne = np.zeros((len(self.xi_pts), len(self.sol_lines_cut)))
+        sol_line_Ti = np.zeros((len(self.xi_pts), len(self.sol_lines_cut)))
+        sol_line_Te = np.zeros((len(self.xi_pts), len(self.sol_lines_cut)))
         for i, sol_line in enumerate(self.sol_lines_cut):
             sol_line_ni[:, i] = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                                         sol_ni.flatten(),
-                                         np.column_stack((np.linspace(0, 1, len(xi_pts)), sol_line_dist[:, i])),
+                                         self.sol_ni.flatten(),
+                                         np.column_stack((np.linspace(0, 1, len(self.xi_pts)), sol_line_dist[:, i])),
                                          method='linear')
             sol_line_ne[:, i] = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                                         sol_ne.flatten(),
-                                         np.column_stack((np.linspace(0, 1, len(xi_pts)), sol_line_dist[:, i])),
+                                         self.sol_ne.flatten(),
+                                         np.column_stack((np.linspace(0, 1, len(self.xi_pts)), sol_line_dist[:, i])),
                                          method='linear')
             sol_line_Ti[:, i] = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                                         sol_Ti.flatten(),
-                                         np.column_stack((np.linspace(0, 1, len(xi_pts)), sol_line_dist[:, i])),
+                                         self.sol_Ti.flatten(),
+                                         np.column_stack((np.linspace(0, 1, len(self.xi_pts)), sol_line_dist[:, i])),
                                          method='linear')
             sol_line_Te[:, i] = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                                         sol_Te.flatten(),
-                                         np.column_stack((np.linspace(0, 1, len(xi_pts)), sol_line_dist[:, i])),
+                                         self.sol_Te.flatten(),
+                                         np.column_stack((np.linspace(0, 1, len(self.xi_pts)), sol_line_dist[:, i])),
                                          method='linear')
 
         # append to master arrays
         for i, line in enumerate(self.sol_lines_cut):
             pts_ni_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_ni[:, i]))
             pts_ne_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_ne[:, i]))
-            pts_Ti_sol = np.column_stack(
-                (sol_nT_pts[:, :, i], sol_line_Ti[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
-            pts_Te_sol = np.column_stack(
-                (sol_nT_pts[:, :, i], sol_line_Te[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
+            pts_Ti_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_Ti[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
+            pts_Te_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_Te[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
 
             self.ni_pts = np.vstack((self.ni_pts, pts_ni_sol))
             self.ne_pts = np.vstack((self.ne_pts, pts_ne_sol))
@@ -994,30 +1021,30 @@ class neutrals:
         wall_nT_pts = np.asarray(wall_line_cut)
         num_wall_pts = len(wall_nT_pts)
         wall_pos_norm = np.zeros(num_wall_pts)
-        wall_dist = np.zeros(num_wall_pts)
+        self.wall_dist = np.zeros(num_wall_pts)
 
         for i, pt in enumerate(wall_nT_pts):
             wall_pt = Point(pt)
             sep_pt_pos = self.entire_sep_line.project(Point(wall_pt), normalized=True)
             sep_pt = self.entire_sep_line.interpolate(sep_pt_pos, normalized=True)
             wall_pos_norm[i] = wall_line_cut.project(wall_pt, normalized=True)
-            wall_dist[i] = wall_pt.distance(sep_pt)
+            self.wall_dist[i] = wall_pt.distance(sep_pt)
 
         wall_ni = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                           sol_ni.flatten(),
-                           np.column_stack((wall_pos_norm, wall_dist)),
+                           self.sol_ni.flatten(),
+                           np.column_stack((wall_pos_norm, self.wall_dist)),
                            method='linear')
         wall_ne = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                           sol_ne.flatten(),
-                           np.column_stack((wall_pos_norm, wall_dist)),
+                           self.sol_ne.flatten(),
+                           np.column_stack((wall_pos_norm, self.wall_dist)),
                            method='linear')
         wall_Ti = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                           sol_Ti.flatten(),
-                           np.column_stack((wall_pos_norm, wall_dist)),
+                           self.sol_Ti.flatten(),
+                           np.column_stack((wall_pos_norm, self.wall_dist)),
                            method='linear')
         wall_Te = griddata(np.column_stack((xi.flatten(), r.flatten())),
-                           sol_Te.flatten(),
-                           np.column_stack((wall_pos_norm, wall_dist)),
+                           self.sol_Te.flatten(),
+                           np.column_stack((wall_pos_norm, self.wall_dist)),
                            method='linear')
 
         # set minimum wall densities and temperatures
@@ -1042,12 +1069,6 @@ class neutrals:
         self.ne_pts = np.vstack((self.ne_pts, pts_ne_wall))
         self.Ti_kev_pts = np.vstack((self.Ti_kev_pts, pts_Ti_wall))
         self.Te_kev_pts = np.vstack((self.Te_kev_pts, pts_Te_wall))
-
-        # plt.contourf(xi, r, np.log10(sol_ni), 500)
-        # plt.colorbar()
-        # for i, v in enumerate(self.sol_lines_cut):
-        # plt.plot(xi_pts, sol_line_dist[:, i])
-        # plt.plot(np.linspace(0, 1, num_wall_pts), wall_dist, color='black')
 
     def _pfr_nT(self):
 
@@ -1495,25 +1516,25 @@ class neutrals:
                           self.ni_pts[:, -1],
                           (mid_x, mid_y),
                           method='linear',
-                          fill_value=0,
+                          fill_value=float(1.0E16),
                           rescale=True)
         ne_tri = griddata(self.ne_pts[:, :-1],
                           self.ne_pts[:, -1],
                           (mid_x, mid_y),
                           method='linear',
-                          fill_value=0,
+                          fill_value=float(1.0E16),
                           rescale=True)
         Ti_tri = griddata(self.Ti_kev_pts[:, :-1],
                           self.Ti_kev_pts[:, -1],
                           (mid_x, mid_y),
                           method='linear',
-                          fill_value=0,
+                          fill_value=.002,
                           rescale=True)
         Te_tri = griddata(self.Te_kev_pts[:, :-1],
                           self.Te_kev_pts[:, -1],
                           (mid_x, mid_y),
                           method='linear',
-                          fill_value=0,
+                          fill_value=.002,
                           rescale=True)
 
         # ni_tri[ni_tri<1.0E16] = 1.0E16
@@ -1684,8 +1705,8 @@ class neutrals:
         self.elecTemp = np.asarray(l['elecTemp'])
         self.ionTemp = np.asarray(l['ionTemp'])
         """The Ion Temperature"""
-        self.elecDens = np.asarray(l['elecDens'])
-        self.ionDens = np.asarray(l['ionDens'])
+        self.elecDens = np.asarray(l['elecDens'], dtype=float)
+        self.ionDens = np.asarray(l['ionDens'], dtype=float)
         self.twall = np.asarray(l['twall'])
         self.f_abs = np.asarray(l['f_abs'])
         self.alb_s = np.asarray(l['alb_s'])
@@ -2507,8 +2528,13 @@ class neutrals:
         for i in range(0, self.nCells):
             for k in range(0, self.nSides[i]):
                 if face.adj.int_type[i, k] == 0:
-                    flux_inc_s[i, k] = flux_out_s[np.where((flux_out_dest == i) & (flux_out_src == self.adjCell[i, k]))]
-                    flux_inc_t[i, k] = flux_out_t[np.where((flux_out_dest == i) & (flux_out_src == self.adjCell[i, k]))]
+                    try:
+                        flux_inc_s[i, k] = flux_out_s[np.where((flux_out_dest == i) & (flux_out_src == self.adjCell[i, k]))]
+                        flux_inc_t[i, k] = flux_out_t[np.where((flux_out_dest == i) & (flux_out_src == self.adjCell[i, k]))]
+                    except ValueError:
+                        print "Incoming flux computation: Could not find correct cell. Setting values to 0"
+                        flux_inc_s[i, k] = 0
+                        flux_inc_t[i, k] = 0
                 if face.adj.int_type[i, k] == 1:
                     flux_inc_s[i, k] = flux_out_s[i, k] * face.alb.s[i, k]
                     flux_inc_t[i, k] = flux_out_t[i, k] * face.alb.t[i, k]
@@ -2716,7 +2742,88 @@ class neutrals:
             #    v2 = np.append(v2,v2[0])
             ax1.plot(v1, v2, color='black', lw=1)
 
-    def _plot_cell_val(self, var, title, nSides=None, logscale=False, cmap='viridis'):
+    def plot_with_wall(self, obj=None):
+        ax = self._plot_with_wall()
+        try:
+            try:
+                iter(obj)
+                for o in obj:
+                    ax.plot(*o.xy)
+            except:
+                ax.plot(*obj.xy)
+            return ax
+        except:
+            pass
+        try:
+            try:
+                iter(obj)
+                for o in obj:
+                    ls = LineString(o.vertices)
+                    ax.plot(*ls.xy)
+            except:
+                ls = LineString(obj.vertices)  # Can this be converted to a linestring?
+                ax.plot(*ls.xy)
+            return ax
+        except:
+            pass
+        if isinstance(obj, tuple):
+            if np.shape(obj) == (2, ):  # A single point
+                ax.plot(obj[0], obj[1])
+                return ax
+            else:
+                try:
+                    ax.plot(obj[0], obj[1])  # Hopefully a tuple containing coordinates in a manner matplotlib can parse
+                    return ax
+                except:
+                    print "Unable to parse coordinates for plotting."
+                    return None
+
+    def _plot_HM(self, x, y, z, aspect=1, cmap=plt.cm.rainbow):
+        xi, yi = np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
+        xi, yi = np.meshgrid(xi, yi)
+        #interp = interp2d(x, y, z)
+        interp = Rbf(x, y, z)
+        zi = interp(xi, yi)
+        fig, ax = plt.subplots(figsize=(6, 6))
+        hm = ax.imshow(zi, interpolation='nearest', cmap=cmap, extent=[x.min(), x.max(), y.max(), y.min()])
+        ax.set_aspect(aspect)
+        return fig, hm
+
+    def plot_HM_Ti(self):
+        self._plot_HM_with_wall(self.Ti_kev_pts)
+
+    def plot_HM_Te(self):
+        self._plot_HM_with_wall(self.Te_kev_pts)
+
+    def plot_HM_ne(self):
+        self._plot_HM_with_wall(self.ne_pts)
+
+    def plot_HM_ni(self):
+        self._plot_HM_with_wall(self.ni_pts)
+
+    def _plot_HM_with_wall(self, val):
+
+        fig, ax = self._plot_HM(val[:, 0], val[:, 1], val[:, -1])
+        fig.colorbar(ax)
+        ax.axes.plot(np.asarray(self.wall_line.xy).T[:, 0], np.asarray(self.wall_line.xy).T[:, 1], color='black', lw=1.5)
+        return ax
+
+    def _plot_with_wall(self):
+        """
+        Generates a Matplotlib plot with the wall pre-plotted.
+
+        :return: An Axis object with the wall line plotted
+        """
+        fig_width = 6.0
+        fig_height = (np.amax(self.Z) - np.amin(self.Z)) / (np.amax(self.R) - np.amin(self.R)) * fig_width
+
+        fig = plt.figure(figsize=(0.975*fig_width, fig_height))
+        ax1 = fig.add_subplot(1, 1, 1)
+        ax1.axis('equal')
+        ax1.plot(np.asarray(self.wall_line.xy).T[:, 0], np.asarray(self.wall_line.xy).T[:, 1], color='black', lw=1.5)
+        return ax1
+
+    def _plot_cell_val(self, var, title, nSides=None, logscale=False, cmap='viridis', showSep=False):
         try:
             import matplotlib.colors as colors
         except ImportError:
@@ -2758,17 +2865,167 @@ class neutrals:
         ax1.set_ylabel(r'Z ($m$)', fontsize=24)
         ax1.set_xlabel(r'R ($m$)', fontsize=24)
         ax1.tick_params(labelsize=24)
-        cb = fig.colorbar(cax)
-        cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=24)
+        if logscale:
+            cb = fig.colorbar(cax)
+            cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=24)
+        if showSep:
+            try:
+                coords = np.asarray(self.main_sep_line.coords)
+                coords = np.vstack((coords, coords[0]))
+                ax1.plot(coords[:, 0], coords[:, 1], color='blue', lw=1)
+            except NameError:
+                print "Separatrix not defined"
+                pass
+        return fig, ax1
 
-    def plot_2D_dens_total(self):
-        self._plot_cell_val(self.nn.tot, "Total Neutral Density")
+    def plot_2D_dens_total(self, logScale=False, showSep=False):
+        return self._plot_cell_val(self.nn.tot, "Total Neutral Density", logscale=logScale, showSep=showSep)
 
-    def plot_2D_dens_therm(self):
-        self._plot_cell_val(self.nn.t, "Thermal Neutral Density")
+    def plot_2D_dens_therm(self, logScale=False, showSep=False):
+        return self._plot_cell_val(self.nn.t, "Thermal Neutral Density", logscale=logScale, showSep=showSep)
 
-    def plot_2D_dens_slow(self):
-        self._plot_cell_val(self.nn.s, "Slow Neutral Density")
+    def plot_2D_dens_slow(self, logScale=False, showSep=False):
+        return self._plot_cell_val(self.nn.s, "Slow Neutral Density", logscale=logScale, showSep=showSep)
+
+    def plot_sol_lines(self):
+        ax = self._plot_with_wall()
+        try:
+            for i, line in enumerate(self.sol_lines_cut):
+                coords = np.asarray(line.coords)
+                ax.plot(coords[:, 0], coords[:, 1], color='lime', lw=1)
+            return ax
+        except NameError:
+            print "SOL lines not defined"
+            pass
+
+    def plot_ob_divertor(self):
+        ax = self._plot_with_wall()
+        try:
+            coords = np.asarray(self.ob_div_line_cut.coords)
+            ax.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
+            return ax
+        except NameError:
+            print "Outboard divertor not defined"
+            pass
+
+    def plot_ib_divertor(self):
+        ax = self._plot_with_wall()
+        try:
+            coords = np.asarray(self.ib_div_line_cut.coords)
+            ax.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
+            return ax
+        except NameError:
+            print "Inboard divertor not defined"
+            pass
+
+    def plot_separatrix(self):
+
+        ax = self._plot_with_wall()
+        try:
+            coords = np.asarray(self.main_sep_line.coords)
+            coords = np.vstack((coords, coords[0]))
+            ax.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
+            return ax
+        except NameError:
+            print "Separatrix not defined"
+            pass
+
+    def plot_exp_psi(self, res=50):
+        ax = self._plot_with_wall()
+        try:
+            ax.contour(self.R, self.Z, self.psi, res)
+            return ax
+        except NameError:
+            print "Psi not defined"
+            pass
+
+    def plot_norm_psi(self, res=50):
+        ax = self._plot_with_wall()
+        try:
+            CS = ax.contour(self.R, self.Z, self.psi_norm, res)
+            CS1 = ax.contour(self.R, self.Z, self.psi_norm, [1])
+            ax.clabel(CS1, inline=1, fontsize=10)
+            return ax
+        except NameError:
+            print "Psi not defined"
+            pass
+
+    def plot_te(self):
+        """
+        Plots the electron temperature
+        """
+        plot = plt.figure()
+        fig = plot.add_subplot(111)
+        fig.set_xlabel(r'$\rho$', fontsize=20)
+        fig.set_ylabel(r'$T_e [keV]$', fontsize=20)
+        fig.set_title('Electron Temperature')
+        fig.scatter(self.Te_data[:, 0], self.Te_data[:, 1], marker='o', color='red')
+
+        return fig
+
+    def plot_ti(self):
+        """
+        Plots the electron temperature
+        """
+        plot = plt.figure()
+        fig = plot.add_subplot(111)
+        fig.set_xlabel(r'$\rho$', fontsize=20)
+        fig.set_ylabel(r'$T_i [keV]$', fontsize=20)
+        fig.set_title('Ion Temperature')
+        fig.scatter(self.Te_data[:, 0], self.Ti_data[:, 1], marker='o', color='red')
+
+        return fig
+
+    def plot_ne(self):
+        """
+        Plots the electron density
+        """
+        plot = plt.figure()
+        fig = plot.add_subplot(111)
+        fig.set_xlabel(r'$\rho$', fontsize=20)
+        fig.set_ylabel(r'$n_e [#/m^3]$', fontsize=20)
+        fig.set_title('Electron Densty')
+        fig.scatter(self.ne_data[:, 0], self.ne_data[:, 1], marker='o', color='red')
+
+        return fig
+
+    def plot_ni(self):
+        """
+        Plots the ion density
+        """
+        plot = plt.figure()
+        fig = plot.add_subplot(111)
+        fig.set_xlabel(r'$\rho$', fontsize=20)
+        fig.set_ylabel(r'$n_i [#/m^3]$', fontsize=20)
+        fig.set_title('Ion Densty')
+        fig.scatter(self.ni_data[:, 0], self.ni_data[:, 1], marker='o', color='red')
+
+        return fig
+
+    def _plot_with_poloidal(self, val):
+        r_max = 0.65
+        twoptdiv_r_pts = 20
+        r_pts = np.linspace(0, r_max, twoptdiv_r_pts)
+        xi, r = np.meshgrid(self.xi_pts, r_pts)
+
+        plt.contourf(xi, r, val, 500)
+        plt.colorbar()
+        #for i, v in enumerate(self.sol_lines_cut):
+        #    plt.plot(self.xi_pts, sol_line_dist[:, i])
+        plt.plot(np.linspace(0, 1, len(self.wall_dist)), self.wall_dist, color='black')
+        plt.show()
+
+    def plot_SOL_Ti_poloidal(self):
+        self._plot_with_poloidal(self.sol_Ti)
+
+    def plot_SOL_Te_poloidal(self):
+        self._plot_with_poloidal(self.sol_Te)
+
+    def plot_SOL_ni_poloidal(self):
+        self._plot_with_poloidal(self.sol_ni)
+
+    def plot_SOL_ne_poloidal(self):
+        self._plot_with_poloidal(self.sol_ne)
 
 if __name__ == "__main__":
     neuts = neutrals()

@@ -63,7 +63,5 @@
 #     coords = np.vstack((coords, coords[0]))
 #     # ax1.plot(coords[:, 0], coords[:, 1], color='pink', lw=1)
 #
-# # plot sol lines
-# for i, line in enumerate(inst.sol_lines_cut):
-#     coords = np.asarray(line.coords)
-#     # ax1.plot(coords[:, 0], coords[:, 1], color='lime', lw=1)
+
+
