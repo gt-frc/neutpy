@@ -108,4 +108,4 @@ triangle/
 test.py
 
 # do not upload inputs to github
-inputs
+inputs/

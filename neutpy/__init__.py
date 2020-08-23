@@ -58,7 +58,7 @@ from neutpy.crosssections import calc_svrec, calc_svcx, calc_svel, calc_sveln, c
 from neutpy.physics import calc_mfp, calc_X_i, calc_P_0i, calc_P_i, calc_c_i, calc_Tn_intocell_t, calc_refl_alb, calc_Ki3, \
     calc_ext_src
 from neutpy.tools import cut, isclose, isinline, draw_line, getangle, getangle3ptsdeg, listToFloatChecker, calc_fsa, \
-    calc_cell_pts
+    calc_cell_pts, remove_out_of_wall
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
 from pathos.multiprocessing import cpu_count
@@ -194,10 +194,10 @@ class neutrals:
 
         # Pull in data from the input file
 
-        self.ne_data = gt3_core.n.e[:, 0]
-        self.ni_data = gt3_core.n.i[:, 0]
-        self.Te_data = gt3_core.T.e.kev[:, 0]
-        self.Ti_data = gt3_core.T.i.kev[:, 0]
+        self.ne_data = np.array((gt3_core.rho[:,0], gt3_core.n.e[:,0])).T
+        self.ni_data = np.array((gt3_core.rho[:,0], gt3_core.n.i[:,0])).T
+        self.Te_data = np.array((gt3_core.rho[:,0], gt3_core.T.e.kev[:, 0])).T
+        self.Ti_data = np.array((gt3_core.rho[:,0], gt3_core.T.i.kev[:, 0])).T
 
         # Get plasma parameters
 
@@ -368,7 +368,8 @@ class neutrals:
             # a single line from inboard divertor to outboard divertor. We need to
             # add in the x-point in at the appropriate locations and split into a
             # main and a lower seperatrix line, each of which will include the x-point.
-            x_psi, y_psi = draw_line(self.R, self.Z, self.psi_norm, 1.0, 0)
+            clean_path = remove_out_of_wall(self.wall_line, LineString(paths[0].vertices))
+            x_psi, y_psi = clean_path.xy
 
             loc1 = np.argmax(y_psi > self.xpt[1])
             loc2 = len(y_psi) - np.argmin(y_psi[::-1] < self.xpt[1])
@@ -395,7 +396,7 @@ class neutrals:
             # self.ib_div_line_cut = line
             # TODO: add point to wall line
 
-            # cut inboard line at the wall and add intersection point to wall_line
+            # cut outboard line at the wall and add intersection point to wall_line
             line = LineString(self.outboard_div_sep)
             int_pt = line.intersection(self.wall_line)
             self.ob_div_line = line
@@ -489,14 +490,19 @@ class neutrals:
         sol_width_obmp = 0.02
         psi_pts = np.linspace(1, self.sollines_psi_max, self.num_sollines + 1, endpoint=True)[1:]
         for i, v in enumerate(psi_pts):
-            num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()))
+            raw_paths = plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()
+            # Filter out lines that are outside the vessel
+            clean_paths = []
+            for a in raw_paths:
+                if self.wall_line.convex_hull.contains(LineString(a.vertices)) or self.wall_line.intersects(LineString(a.vertices)):
+                    clean_paths.append(a)
+            num_lines = len(clean_paths)
             if num_lines == 1:
                 # then we're definitely dealing with a surface inside the seperatrix
-                x, y = draw_line(self.R, self.Z, self.psi_norm, v, 0)
-                self.sol_lines.append(LineString(np.column_stack((x, y))))
+                self.sol_lines.append(LineString(clean_paths[0].vertices))
             else:
                 # We have 2 lines probably, one on the inboard and one on the outboard sides.
-                big_lines = plt.contour(self.R, self.Z, self.psi_norm, [v]).collections[0].get_paths()
+                big_lines = clean_paths
                 for a in big_lines:
                     segs = split(LineString(a.vertices), self.wall_line)
                     for b in segs:
@@ -552,23 +558,18 @@ class neutrals:
         if num_lines == 1:
             # then we're definitely dealing with a surface inside the seperatrix
             print 'Did not find PFR flux surface. Stopping.'
-            sys.exit()
+            raise
         else:
             # we need to find the surface that is contained within the private flux region
-            for j, line in enumerate(
-                    plt.contour(self.R, self.Z, self.psi_norm, [.99]).collections[0].get_paths()[:num_lines]):
-                # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.99)[:num_lines]):
-                # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
-                x, y = draw_line(self.R, self.Z, self.psi_norm, 0.99, j)
-                if (np.amax(y) < np.amin(self.main_sep_pts[:, 1])):
-                    # then it's a pfr flux surface, might need to add additional checks later
-                    pfr_line_raw = LineString(np.column_stack((x, y)))
-                    # Find intersections
-                    segs = split(pfr_line_raw, self.wall_line)
-                    for a in segs:
-                        if self.wall_line.convex_hull.contains(LineString(LineString(a.coords[:-1]).coords[1:])):
-                            # create LineString with pfr line and section of wall line
-                            self.pfr_line = a
+            paths = plt.contour(self.R, self.Z, self.psi_norm, [.99]).collections[0].get_paths()[:num_lines]
+            for j, line in enumerate(paths):
+                pathLS = LineString(line.vertices)
+                # If this line is wholly outside the vessel, skip it
+                if not self.wall_line.convex_hull.contains(pathLS) and not self.wall_line.convex_hull.intersects(pathLS):
+                    continue
+                # If this line intersects the wall
+                if self.wall_line.intersects(pathLS):
+                    self.pfr_line = pathLS
                     break
         # plt.axis('equal')
         # plt.plot(np.asarray(self.wall_line.xy).T[:, 0], np.asarray(self.wall_line.xy).T[:, 1], color='black', lw=0.5)
@@ -614,6 +615,13 @@ class neutrals:
             ne_val = ne(rho)
             Ti_kev_val = Ti_kev(rho)
             Te_kev_val = Te_kev(rho)
+
+            # Set last rho value to the last experimental data point to avoid issues with interpolators setting negative values
+            if i == len(rho_pts)-1:
+                ne_val = self.ne_data[:, 1][-1]
+                ni_val = self.ni_data[:, 1][-1]
+                Te_kev_val = self.Te_data[:, 1][-1]
+                Ti_kev_val = self.Ti_data[:, 1][-1]
             # get R, Z coordinates of each point along the rho_line
             pt_coords = np.asarray(rho_line.interpolate(rho, normalized=True).coords)[0]
 
@@ -653,10 +661,10 @@ class neutrals:
                 self.Te_kev_pts = np.vstack((self.Te_kev_pts, np.append(pt, Te_kev_val)))
 
         # Do seperatrix separately so we don't accidentally assign the input n, T data to the divertor legs
-        self.ni_sep_val = ni(1.0)
-        self.ne_sep_val = ne(1.0)
-        self.Ti_kev_sep_val = Ti_kev(1.0)
-        self.Te_kev_sep_val = Te_kev(1.0)
+        self.ni_sep_val = self.ni_data[:, 1][-1]
+        self.ne_sep_val = self.ne_data[:, 1][-1]
+        self.Ti_kev_sep_val = self.Ti_data[:, 1][-1]
+        self.Te_kev_sep_val = self.Te_data[:, 1][-1]
         self.Ti_J_sep_val = self.Ti_kev_sep_val * 1.0E3 * 1.6021E-19
         self.Te_J_sep_val = self.Te_kev_sep_val * 1.0E3 * 1.6021E-19
         for j, theta_norm in enumerate(thetapts):
@@ -942,9 +950,10 @@ class neutrals:
         # method='linear',
         # fill_value='np.nan')
 
-        #TODO: R_max affects the results of the calculation. Need to figure out what this is actually.
+        #TODO: R_max affects the results of the calculation. Need to figure out why.
 
-        r_max = 0.45
+        r_max = 0.7
+        """The maximum radius of the 2D interpolation of n/T"""
 
         twoptdiv_r_pts = 20
 
@@ -2744,6 +2753,9 @@ class neutrals:
 
     def plot_with_wall(self, obj=None):
         ax = self._plot_with_wall()
+        if isinstance(obj, Point):
+            ax.scatter(obj.x, obj.y, color='red', marker='o')
+            return ax
         try:
             try:
                 iter(obj)
@@ -2777,6 +2789,7 @@ class neutrals:
                 except:
                     print "Unable to parse coordinates for plotting."
                     return None
+
 
     def _plot_HM(self, x, y, z, aspect=1, cmap=plt.cm.rainbow):
         xi, yi = np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
