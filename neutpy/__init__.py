@@ -91,12 +91,21 @@ class neutrals:
         self.elecDens = None
         self.ionDens = None
         self.cpu_cores = 1
+        self.cpu_override = None
         self.config_loc = "neutpy.conf"
         print 'INITIALIZING NEUTPY'
 
         sys.dont_write_bytecode = True
         self.verbose = verbose
         self.sv = calc_xsec()
+
+    def set_cpu_cores(self, num):
+        """
+        Override the number of CPU cores for this instance.
+        :param num: The number of CPU cores to use
+        :type num: float
+        """
+        self.cpu_override = num
 
     def from_mesh(self, filename):
         """
@@ -172,7 +181,10 @@ class neutrals:
         # Collect configuration from main configuration file
 
         self.verbose = config.getint('Data', 'verbose')
-        self.cpu_cores = config.getint('Data', 'cpu_cores')
+        if not self.cpu_override:
+            self.cpu_cores = config.getint('Data', 'cpu_cores')
+        else:
+            self.cpu_cores = self.cpu_override
         self.corelines_begin = config.getfloat('Data', 'corelines_begin')
         self.num_corelines = config.getint('Data', 'num_corelines')
         self.sollines_psi_max = config.getfloat('Data', 'sollines_psi_max')
@@ -616,12 +628,16 @@ class neutrals:
             Ti_kev_val = Ti_kev(rho)
             Te_kev_val = Te_kev(rho)
 
-            # Set last rho value to the last experimental data point to avoid issues with interpolators setting negative values
-            if i == len(rho_pts)-1:
+            # Set value to the last experimental data point if interpolators are creating negative values
+            if ne_val <= 0.0:
                 ne_val = self.ne_data[:, 1][-1]
+            if ni_val <= 0.0:
                 ni_val = self.ni_data[:, 1][-1]
+            if Te_kev_val <= 0.0:
                 Te_kev_val = self.Te_data[:, 1][-1]
+            if Ti_kev_val <= 0.0:
                 Ti_kev_val = self.Ti_data[:, 1][-1]
+
             # get R, Z coordinates of each point along the rho_line
             pt_coords = np.asarray(rho_line.interpolate(rho, normalized=True).coords)[0]
 
@@ -1630,7 +1646,10 @@ class neutrals:
         # Collect configuration from main configuration file
 
         self.verbose = config.getint('Data', 'verbose')
-        self.cpu_cores = config.getint('Data', 'cpu_cores')
+        if not self.cpu_override:
+            self.cpu_cores = config.getint('Data', 'cpu_cores')
+        else:
+            self.cpu_cores = self.cpu_override
         self.corelines_begin = config.getfloat('Data', 'corelines_begin')
         self.num_corelines = config.getint('Data', 'num_corelines')
         self.sollines_psi_max = config.getfloat('Data', 'sollines_psi_max')
@@ -2790,7 +2809,6 @@ class neutrals:
                     print "Unable to parse coordinates for plotting."
                     return None
 
-
     def _plot_HM(self, x, y, z, aspect=1, cmap=plt.cm.rainbow):
         xi, yi = np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
         xi, yi = np.meshgrid(xi, yi)
@@ -2883,7 +2901,7 @@ class neutrals:
             cb.ax.set_yticklabels(cb.ax.get_yticklabels(), fontsize=24)
         if showSep:
             try:
-                coords = np.asarray(self.main_sep_line.coords)
+                coords = np.asarray(self.entire_sep_line.coords)
                 coords = np.vstack((coords, coords[0]))
                 ax1.plot(coords[:, 0], coords[:, 1], color='blue', lw=1)
             except NameError:
@@ -3016,6 +3034,7 @@ class neutrals:
         return fig
 
     def _plot_with_poloidal(self, val):
+        """Provides a template for plotting values that are poloidally dependent. Includes the wall boundaries"""
         r_max = 0.65
         twoptdiv_r_pts = 20
         r_pts = np.linspace(0, r_max, twoptdiv_r_pts)
