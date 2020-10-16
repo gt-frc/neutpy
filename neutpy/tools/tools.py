@@ -361,3 +361,39 @@ def calc_fsa(x, R, Z):
     fsa = np.sum(x_av * dA, axis=1) / np.sum(dA, axis=1)
     fsa[0] = x[0, 0]
     return fsa
+
+def remove_out_of_wall(wall_line, ls):
+
+    from shapely.affinity import translate
+    """
+    Remove segments that are outside the vessel and add in the intersection points
+
+    :param wall_line: The wallline
+    :type wall_line: LineString
+    :param ls: The linestring to be cleaned
+    :type ls: LineString
+    :return:
+    """
+
+    inters = wall_line.intersection(ls)
+    delta=1.0E-10
+    # Find which intersection is the left-most intersection with the wall
+    if inters[0].xy[0] < inters[1].xy[0]:
+        ib_pt = inters[0]
+        ob_pt = inters[1]
+    else:
+        ib_pt = inters[1]
+        ob_pt = inters[0]
+    # We need to shift the points over ever so slightly because of machine precision errors
+    ib_pt = translate(ib_pt, -1.0 * delta, -1.0 * delta)
+    ob_pt = translate(ob_pt, delta, -1.0 * delta)
+
+    clean_verts = ([ib_pt.xy[0][0]], [ib_pt.xy[1][0]])
+    verts = ls.xy
+    for x,y in zip(*verts):
+        if wall_line.convex_hull.contains(Point(x, y)):
+            clean_verts[0].append(x)
+            clean_verts[1].append(y)
+    clean_verts[0].append(ob_pt.xy[0][0])
+    clean_verts[1].append(ob_pt.xy[1][0])
+    return LineString(np.array((clean_verts[0], clean_verts[1]), float).T)
