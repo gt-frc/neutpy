@@ -10,15 +10,15 @@ def f(phi, xi, x_comp, y_comp, x_coords, y_coords, reg, mfp, fromcell, tocell, t
         result = (2.0 / (pi * -1 * x_comp[-1])) * sin(phi) * Ki3_fit(li(phi, xi, x_coords, y_coords, reg) / mfp)
         return result
     except:
-        print
-        print 'something went wrong when evaluating A transmission coefficient:'
-        print 'li = ', li(phi, xi, x_coords, y_coords, reg)
-        print 'mfp = ', mfp
-        print 'li/mfp = ', li(phi, xi, x_coords, y_coords, reg) / mfp
-        print 'fromcell = ', fromcell
-        print 'tocell = ', tocell
-        print 'throughcell = ', throughcell
-        print
+        print()
+        print('something went wrong when evaluating A transmission coefficient:')
+        print('li = ', li(phi, xi, x_coords, y_coords, reg))
+        print('mfp = ', mfp)
+        print('li/mfp = ', li(phi, xi, x_coords, y_coords, reg) / mfp)
+        print('fromcell = ', fromcell)
+        print('tocell = ', tocell)
+        print('throughcell = ', throughcell)
+        print()
         if li(phi, xi, x_coords, y_coords, reg) / mfp > 100:
             result = (2.0 / (pi * -1 * x_comp[-1])) * sin(phi) * Ki3_fit(100.0)
             return result
@@ -200,19 +200,19 @@ def coeff_calc(inputs, *args, **kwargs):
                                                                ('limit', 2)]))[0]
             # stop if nan is detected
             if np.isnan(T_coef_t[i, j, k]) or np.isnan(T_coef_s[i, j, k]):
-                print 'T_coef = nan detected'
-                print 'i, j, k = ', i, j, k
-                print ('T_coef_t[i, j, k] = ', (T_coef_t[i, j, k]))
-                print ('T_coef_s[i, j, k] = ', (T_coef_s[i, j, k]))
-                print
-                print 'x_comp = ', x_comp
-                print 'y_comp = ', y_comp
-                print 'x_coords = ', x_coords
-                print 'y_coords = ', y_coords
-                print 'reg = ', reg
+                print('T_coef = nan detected')
+                print('i, j, k = ', i, j, k)
+                print(('T_coef_t[i, j, k] = ', (T_coef_t[i, j, k])))
+                print(('T_coef_s[i, j, k] = ', (T_coef_s[i, j, k])))
+                print()
+                print('x_comp = ', x_comp)
+                print('y_comp = ', y_comp)
+                print('x_coords = ', x_coords)
+                print('y_coords = ', y_coords)
+                print('reg = ', reg)
                 # =    print 'face.mfp.t[i, j] = ', face.mfp.t[i, j]
-                print 'adj_cells[0] = ', adj_cells[0]
-                print 'adj_cells[k-j] = ', adj_cells[k - j]
+                print('adj_cells[0] = ', adj_cells[0])
+                print('adj_cells[k-j] = ', adj_cells[k - j])
                 sys.exit()
             else:
                 pass

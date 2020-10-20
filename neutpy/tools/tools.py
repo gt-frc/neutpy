@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # coding=utf-8
 
-from __future__ import division
+
 import numpy as np
 from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
@@ -33,7 +33,7 @@ def isnamedtupleinstance(x):
 
 def iterate_namedtuple(object, df):
     if isnamedtupleinstance(object):
-        for key, item in object._asdict().iteritems():
+        for key, item in object._asdict().items():
             if isnamedtupleinstance(item):
                 iterate_namedtuple(item, df)
             else:
@@ -182,7 +182,7 @@ class NeutpyTools:
         self.vars['flux_tot_ycomp'] = flux_tot_ycomp
         self.vars['flux_tot_mag'] = flux_tot_mag
 
-        print 'attempting to start plot_cell_vals'
+        print('attempting to start plot_cell_vals')
         self.plot_cell_vals()
 
 
@@ -217,13 +217,13 @@ class NeutpyTools:
                     the magnitude from "flux_net_av_mag" interpolation object.)
             """
 
-        if ntrl_pop is 'slow':
+        if ntrl_pop == 'slow':
             flux_in = self.flux_in_s[:, :-1]
             flux_out = self.flux_out_s[:, :-1]
-        elif ntrl_pop is 'thermal':
+        elif ntrl_pop == 'thermal':
             flux_in = self.flux_in_t[:, :-1]
             flux_out = self.flux_out_t[:, :-1]
-        elif ntrl_pop is 'total':
+        elif ntrl_pop == 'total':
             flux_in = self.flux_in_tot[:, :-1]
             flux_out = self.flux_out_tot[:, :-1]
 
@@ -301,7 +301,7 @@ def isinline(pt, line):
         return False
 
 def draw_line(R, Z, array, val, pathnum):
-    res = plt.contour(R, Z, array, [val]).collections[0].get_paths()[pathnum]
+    res = plt.contour(R, Z, array, [val], colors='r').collections[0].get_paths()[pathnum]
     # res = cntr.contour(R, Z, array).trace(val)[pathnum]
     x = res.vertices[:, 0]
     y = res.vertices[:, 1]

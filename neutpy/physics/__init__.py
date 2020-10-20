@@ -1,3 +1,3 @@
 #!/usr/bin/python
 
-from physics import *
+from .physics import *

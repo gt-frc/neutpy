@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# .bak files
+
+*.bak
+
 # Distribution / packaging
 .Python
 env/

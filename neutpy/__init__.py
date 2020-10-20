@@ -44,7 +44,6 @@ TODO:
 
 """
 
-from __future__ import division
 
 from math import tan
 import numpy as np
@@ -70,8 +69,8 @@ from math import degrees, sqrt, pi
 import sys, os, re, json, yaml
 from subprocess import call
 import time
-
-import ConfigParser
+import matplotlib
+import configparser
 
 try:
     import matplotlib.pyplot as plt
@@ -93,11 +92,19 @@ class neutrals:
         self.cpu_cores = 1
         self.cpu_override = None
         self.config_loc = "neutpy.conf"
-        print 'INITIALIZING NEUTPY'
+        print('INITIALIZING NEUTPY')
+        print(matplotlib.get_backend())
+
+        self._check_for_triangle()
 
         sys.dont_write_bytecode = True
         self.verbose = verbose
         self.sv = calc_xsec()
+
+    def _check_for_triangle(self):
+        from shutil import which
+        if which("triangle") == None:
+            raise EnvironmentError("Triangle is not installed. Neutpy cannot be run")
 
     def set_cpu_cores(self, num):
         """
@@ -126,49 +133,49 @@ class neutrals:
         """
         self._read_config(infile)
         if self.verbose:
-            print 'Generating separatrix lines'
+            print('Generating separatrix lines')
         self._get_sep_lines()
 
         if self.verbose:
-            print 'Generating core lines'
+            print('Generating core lines')
         self._get_core_lines()
 
 
         if self.verbose:
-            print 'Generating scrape-off layer lines'
+            print('Generating scrape-off layer lines')
         self._get_sol_lines()
 
         if self.verbose:
-            print 'Generating private flux region'
+            print('Generating private flux region')
         self._pfr_lines()
 
         if self.verbose:
-            print 'Generating core background plasma'
+            print('Generating core background plasma')
         self._core_nT()
 
         if self.verbose:
-            print 'Generating scrape-off layer'
+            print('Generating scrape-off layer')
         self._sol_nT()
 
         if self.verbose:
-            print 'Generating private flux region'
+            print('Generating private flux region')
         self._pfr_nT()
 
         if self.verbose:
-            print 'Running Triangle meshing routine'
+            print('Running Triangle meshing routine')
 
         self._triangle_prep()
         self._read_triangle()
 
         if self.verbose:
-            print 'Running neutrals calculation'
+            print('Running neutrals calculation')
         try:
             self._run()
         except Exception as e:
-            print """
+            print("""
             *****************************
             NeutPy failed with error: %s
-            """ % str(e)
+            """ % str(e))
 
         # get vertices in R, Z geometry
         self.xs, self.ys = calc_cell_pts(self)
@@ -176,7 +183,7 @@ class neutrals:
 
     def from_gt3(self, gt3_core, gt3_inp):
 
-        config = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
         config.read(self.config_loc)
         # Collect configuration from main configuration file
 
@@ -221,41 +228,41 @@ class neutrals:
         self.psi = gt3_core.psi_data.psi
 
         if self.verbose:
-            print 'Generating separatrix lines'
+            print('Generating separatrix lines')
         self._get_sep_lines()
 
         if self.verbose:
-            print 'Generating core lines'
+            print('Generating core lines')
         self._get_core_lines()
 
         if self.verbose:
-            print 'Generating scrape-off layer lines'
+            print('Generating scrape-off layer lines')
         self._get_sol_lines()
 
         if self.verbose:
-            print 'Generating private flux region'
+            print('Generating private flux region')
         self._pfr_lines()
 
         if self.verbose:
-            print 'Generating core background plasma'
+            print('Generating core background plasma')
         self._core_nT()
 
         if self.verbose:
-            print 'Generating scrape-off layer'
+            print('Generating scrape-off layer')
         self._sol_nT()
 
         if self.verbose:
-            print 'Generating private flux region'
+            print('Generating private flux region')
         self._pfr_nT()
 
         if self.verbose:
-            print 'Running Triangle meshing routine'
+            print('Running Triangle meshing routine')
 
         self._triangle_prep()
         self._read_triangle()
 
         if self.verbose:
-            print 'Running neutrals calculation'
+            print('Running neutrals calculation')
         self._run()
 
         # get vertices in R, Z geometry
@@ -569,7 +576,7 @@ class neutrals:
         # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(0.999))/2)
         if num_lines == 1:
             # then we're definitely dealing with a surface inside the seperatrix
-            print 'Did not find PFR flux surface. Stopping.'
+            print('Did not find PFR flux surface. Stopping.')
             raise
         else:
             # we need to find the surface that is contained within the private flux region
@@ -647,7 +654,7 @@ class neutrals:
                                pt_coords,
                                method='linear')
             # map this n, T data to every point on the corresponding flux surface
-            num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()))
+            num_lines = int(len(plt.contour(self.R, self.Z, self.psi_norm, [psi_val], colors='r').collections[0].get_paths()))
             # num_lines = int(len(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val))/2)
 
             if num_lines == 1:
@@ -657,7 +664,7 @@ class neutrals:
             else:
                 # we need to find which of the surfaces is inside the seperatrix
                 for j, line in enumerate(
-                        plt.contour(self.R, self.Z, self.psi_norm, [psi_val]).collections[0].get_paths()[:num_lines]):
+                        plt.contour(self.R, self.Z, self.psi_norm, [psi_val], colors='r').collections[0].get_paths()[:num_lines]):
                     # for j, line in enumerate(cntr.contour(self.R, self.Z, self.psi_norm).trace(psi_val)[:num_lines]):
                     # for j, line in enumerate(cntr.contour(R, Z, self.psi_norm).trace(v)):
                     x, y = draw_line(self.R, self.Z, self.psi_norm, psi_val, j)
@@ -1127,9 +1134,9 @@ class neutrals:
         # GET POINTS FOR TRIANGULATION
         # main seperatrix
 
-        print 'Number of poloidal points in core: ', self.core_pol_pts
-        print 'Number of inbooard poloidal points at the divertor: ', self.ib_div_pol_pts
-        print 'Number of outboard poloidal points at the divertor', self.ob_div_pol_pts
+        print('Number of poloidal points in core: ', self.core_pol_pts)
+        print('Number of inbooard poloidal points at the divertor: ', self.ib_div_pol_pts)
+        print('Number of outboard poloidal points at the divertor', self.ob_div_pol_pts)
 
         sep_pts = np.zeros((self.core_pol_pts, 2))
         for i, v in enumerate(np.linspace(0, 1, self.core_pol_pts, endpoint=False)):
@@ -1272,7 +1279,7 @@ class neutrals:
             pass
 
         try:
-            print self.tri_min_area
+            print(self.tri_min_area)
             tri_options = tri_options + 'a' + str(self.tri_min_area)
         except:
             pass
@@ -1280,13 +1287,13 @@ class neutrals:
         tri_options = tri_options + 'nz'
         # call triangle
         try:
-            print tri_options
+            print(tri_options)
             call(['triangle', tri_options, filepath])
         except AttributeError:
             try:
                 call(['triangle', tri_options, filepath])
             except:
-                print 'triangle could not be found. Stopping.'
+                print('triangle could not be found. Stopping.')
                 sys.exit
 
     def _read_triangle(self):
@@ -1316,7 +1323,7 @@ class neutrals:
         with open(elepath, 'r') as tri_file:
             tricount = re.findall(r'\d+', next(tri_file))
             nTri = int(tricount[0])
-            print 'number of triangles = ', nTri
+            print('number of triangles = ', nTri)
             triangles = np.zeros((nTri, 3))
             tri_regions = np.zeros(nTri)
             for i in range(0, nTri):
@@ -1638,8 +1645,8 @@ class neutrals:
         :param infile: The input configuration file containing radial profiles and plasma magnetic field strength (in T)
         :type infile: str
         """
-        config = ConfigParser.RawConfigParser()
-        inFile = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
+        inFile = configparser.RawConfigParser()
 
         config.read(self.config_loc)
         inFile.read(input_file)
@@ -1924,7 +1931,7 @@ class neutrals:
 
         time1 = time.time()
         minutes, seconds = divmod(time1 - time0, 60)
-        if self.verbose: print 'NEUTPY TIME = {} min, {} sec'.format(minutes, seconds)
+        if self.verbose: print('NEUTPY TIME = {} min, {} sec'.format(minutes, seconds))
         self.nn_s_raw = self.cell_nn_s
         self.nn_t_raw = self.cell_nn_t
         self.nn_raw = self.nn_s_raw + self.nn_t_raw
@@ -2072,7 +2079,7 @@ class neutrals:
         outof = np.sum(self.nSides[:self.nCells] ** 2)
 
         start_time = time.time()
-        print "Start time: %s" % start_time
+        print("Start time: %s" % start_time)
 
         cord_list = list(np.ndenumerate(T_coef_s))
         # for (i, j, k), val in np.ndenumerate(T_coef_s):
@@ -2098,17 +2105,17 @@ class neutrals:
         # Use all but one CPU by default
         if cpu_cores > cpu_count():
             pool = Pool(cpu_count() - 1)
-            print "T_coef calculation running on %s cores." % cpu_count() - 1
+            print("T_coef calculation running on %s cores." % cpu_count() - 1)
         else:
             pool = Pool(cpu_cores)
-            print "T_coef calculation running on %s cores." % cpu_cores
+            print("T_coef calculation running on %s cores." % cpu_cores)
 
         self.coef_results = pool.map(partial(coeff_calc, **kwargs), cord_list)
 
         # result = [(0, 0, 0, 0, 0)] * (self.nCells * 4 * 4)
 
         end_time = time.time()
-        print "Total: %s" % (end_time - start_time)
+        print("Total: %s" % (end_time - start_time))
 
         for (i, j, k, s, t, f, to, via) in self.coef_results:
             T_from[i, j, k] = f
@@ -2505,8 +2512,8 @@ class neutrals:
                                 1.0 - cell.P0i.t[cell_io]) * cell.ci.t[cell_io] * cell.Pi.t[cell_io] * face.lfrac[
                                                                     face_to_loc])
                         if incoming_flux < 0:
-                            print 'incoming flux less than zero'
-                            print 'stopping'
+                            print('incoming flux less than zero')
+                            print('stopping')
                             sys.exit()
 
         # CREATE FINAL MATRIX AND SOLVE
@@ -2560,7 +2567,7 @@ class neutrals:
                         flux_inc_s[i, k] = flux_out_s[np.where((flux_out_dest == i) & (flux_out_src == self.adjCell[i, k]))]
                         flux_inc_t[i, k] = flux_out_t[np.where((flux_out_dest == i) & (flux_out_src == self.adjCell[i, k]))]
                     except ValueError:
-                        print "Incoming flux computation: Could not find correct cell. Setting values to 0"
+                        print("Incoming flux computation: Could not find correct cell. Setting values to 0")
                         flux_inc_s[i, k] = 0
                         flux_inc_t[i, k] = 0
                 if face.adj.int_type[i, k] == 1:
@@ -2632,7 +2639,7 @@ class neutrals:
             if v1 < 0:
                 # get neutral densities of adjacent cells
                 # average the positive values
-                print i, 'Found a negative density. Fixing by using average of surrounding cells.'
+                print(i, 'Found a negative density. Fixing by using average of surrounding cells.')
                 # print 'You probably need to adjust the way you are calculating the transmission coefficients.'
                 nn_sum = 0
                 nn_count = 0
@@ -2806,7 +2813,7 @@ class neutrals:
                     ax.plot(obj[0], obj[1])  # Hopefully a tuple containing coordinates in a manner matplotlib can parse
                     return ax
                 except:
-                    print "Unable to parse coordinates for plotting."
+                    print("Unable to parse coordinates for plotting.")
                     return None
 
     def _plot_HM(self, x, y, z, aspect=1, cmap=plt.cm.rainbow):
@@ -2858,17 +2865,17 @@ class neutrals:
         try:
             import matplotlib.colors as colors
         except ImportError:
-            print ImportError("Matplotlib Colors module not found.")
+            print(ImportError("Matplotlib Colors module not found."))
             return
         try:
             from matplotlib.patches import Polygon
         except ImportError:
-            print ImportError("Matplotlib Polygon module not found")
+            print(ImportError("Matplotlib Polygon module not found"))
             return
         try:
             from matplotlib.collections import PatchCollection
         except ImportError:
-            print ImportError("Matplotlib PatchCollection module not found")
+            print(ImportError("Matplotlib PatchCollection module not found"))
             return
 
         if logscale:
@@ -2905,7 +2912,7 @@ class neutrals:
                 coords = np.vstack((coords, coords[0]))
                 ax1.plot(coords[:, 0], coords[:, 1], color='blue', lw=1)
             except NameError:
-                print "Separatrix not defined"
+                print("Separatrix not defined")
                 pass
         return fig, ax1
 
@@ -2926,7 +2933,7 @@ class neutrals:
                 ax.plot(coords[:, 0], coords[:, 1], color='lime', lw=1)
             return ax
         except NameError:
-            print "SOL lines not defined"
+            print("SOL lines not defined")
             pass
 
     def plot_ob_divertor(self):
@@ -2936,7 +2943,7 @@ class neutrals:
             ax.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
             return ax
         except NameError:
-            print "Outboard divertor not defined"
+            print("Outboard divertor not defined")
             pass
 
     def plot_ib_divertor(self):
@@ -2946,7 +2953,7 @@ class neutrals:
             ax.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
             return ax
         except NameError:
-            print "Inboard divertor not defined"
+            print("Inboard divertor not defined")
             pass
 
     def plot_separatrix(self):
@@ -2958,7 +2965,7 @@ class neutrals:
             ax.plot(coords[:, 0], coords[:, 1], color='yellow', lw=1)
             return ax
         except NameError:
-            print "Separatrix not defined"
+            print("Separatrix not defined")
             pass
 
     def plot_exp_psi(self, res=50):
@@ -2967,7 +2974,7 @@ class neutrals:
             ax.contour(self.R, self.Z, self.psi, res)
             return ax
         except NameError:
-            print "Psi not defined"
+            print("Psi not defined")
             pass
 
     def plot_norm_psi(self, res=50):
@@ -2978,7 +2985,7 @@ class neutrals:
             ax.clabel(CS1, inline=1, fontsize=10)
             return ax
         except NameError:
-            print "Psi not defined"
+            print("Psi not defined")
             pass
 
     def plot_te(self):

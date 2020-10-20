@@ -1,3 +1,3 @@
 #!/usr/bin/python
 
-from parallelNeut import *
+from .parallelNeut import *
