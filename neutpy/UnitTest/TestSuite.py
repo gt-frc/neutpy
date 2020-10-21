@@ -9,8 +9,21 @@ class NeutpyUnitTest(unittest.TestCase):
         cls.npi = neutpy.neutrals()
         cls.npi.set_cpu_cores(6)
 
+class CommonMethods(object):
 
-class NeutpySingleLowerNullTest(NeutpyUnitTest):
+    def test_neutpy_has_nn(cls):
+        cls.assertTrue(hasattr(cls.npi.nn, "s"))
+        cls.assertTrue(hasattr(cls.npi.nn, "t"))
+        cls.assertTrue(hasattr(cls.npi.nn, "tot"))
+
+    def test_neutpy_has_izn(cls):
+        cls.assertTrue(hasattr(cls.npi.izn_rate, "s"))
+        cls.assertTrue(hasattr(cls.npi.izn_rate, "t"))
+        cls.assertTrue(hasattr(cls.npi.izn_rate, "tot"))
+
+
+
+class NeutpySingleLowerNullTest(NeutpyUnitTest, CommonMethods):
     """
     Tests that neutpy can run on a single lower null shot.
     """
@@ -23,19 +36,7 @@ class NeutpySingleLowerNullTest(NeutpyUnitTest):
     def test_cpu_override(self):
         self.assertIs(self.npi.cpu_cores, 6)
 
-    def test_neutpy_has_nn(self):
-        self.assertTrue(hasattr(self.npi.nn, "s"))
-        self.assertTrue(hasattr(self.npi.nn, "t"))
-        self.assertTrue(hasattr(self.npi.nn, "tot"))
-
-    def test_neutpy_has_izn(self):
-        self.assertTrue(hasattr(self.npi.izn_rate, "s"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "t"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "tot"))
-
-
-
-class NeutpyDoubleNullTest(NeutpyUnitTest):
+class NeutpyDoubleNullTest(NeutpyUnitTest, CommonMethods):
     """
     Tests that neutpy can run on a double null shot.
     """
@@ -47,17 +48,8 @@ class NeutpyDoubleNullTest(NeutpyUnitTest):
     def setUp(self):
         pass
 
-    def test_neutpy_has_nn(self):
-        self.assertTrue(hasattr(self.npi.nn, "s"))
-        self.assertTrue(hasattr(self.npi.nn, "t"))
-        self.assertTrue(hasattr(self.npi.nn, "tot"))
 
-    def test_neutpy_has_izn(self):
-        self.assertTrue(hasattr(self.npi.izn_rate, "s"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "t"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "tot"))
-
-class NeutpyNegativeTriangularityDoubleNullTest(NeutpyUnitTest):
+class NeutpyNegativeTriangularityDoubleNullTest(NeutpyUnitTest, CommonMethods):
     """
     Tests that neutpy can run on a double null, negative triangularity shot.
     """
@@ -66,17 +58,7 @@ class NeutpyNegativeTriangularityDoubleNullTest(NeutpyUnitTest):
         super(NeutpyNegativeTriangularityDoubleNullTest, cls).setUpClass()
         cls.npi.from_file("170672_1900/toneutpy.conf")
 
-    def test_neutpy_has_nn(self):
-        self.assertTrue(hasattr(self.npi.nn, "s"))
-        self.assertTrue(hasattr(self.npi.nn, "t"))
-        self.assertTrue(hasattr(self.npi.nn, "tot"))
-
-    def test_neutpy_has_izn(self):
-        self.assertTrue(hasattr(self.npi.izn_rate, "s"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "t"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "tot"))
-
-class NeutpyFromGT3Test(NeutpyUnitTest):
+class NeutpyFromGT3Test(NeutpyUnitTest, CommonMethods):
     """
     Tests that NeutPy can run from a GT3 instance
     """
@@ -88,16 +70,6 @@ class NeutpyFromGT3Test(NeutpyUnitTest):
         from GT3.TestBase import getGT3Test
         plasma = getGT3Test()
         cls.npi.from_gt3(plasma.core, plasma.inp)
-
-    def test_neutpy_has_nn(self):
-        self.assertTrue(hasattr(self.npi.nn, "s"))
-        self.assertTrue(hasattr(self.npi.nn, "t"))
-        self.assertTrue(hasattr(self.npi.nn, "tot"))
-
-    def test_neutpy_has_izn(self):
-        self.assertTrue(hasattr(self.npi.izn_rate, "s"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "t"))
-        self.assertTrue(hasattr(self.npi.izn_rate, "tot"))
 
 
 if __name__ == '__main__':

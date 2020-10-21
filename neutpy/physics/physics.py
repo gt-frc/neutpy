@@ -4,7 +4,7 @@
 Various physics-ish functions for neutpy
 """
 
-from __future__ import division
+
 import numpy as np
 from scipy import integrate
 from math import pi
@@ -132,31 +132,31 @@ def calc_mfp(Tn, n, sv, en_grp):
     if np.any(np.isnan(mfp)):
         array_type = 'cell' if Tn.ndim == 2 else 'face'
         nan_locs = np.argwhere(np.isnan(mfp))
-        print 'an NAN was found in the '+array_type+' '+en_grp+' mfp array'
-        print 'indices:'
-        print nan_locs
-        print
-        print 'vn at those indices'
-        print vn[nan_locs]
-        print
-        print 'ne at those indices'
-        print ne[nan_locs]
-        print
-        print 'ni at those indices'
-        print svion[nan_locs]
-        print
-        print 'svion at those indices'
-        print vn[nan_locs]
-        print
-        print 'svcx at those indices'
-        print svcx[nan_locs]
-        print
-        print 'svel at those indices'
-        print svel[nan_locs]
-        print
-        print 'mfp array'
-        print mfp
-        print 'stopping.'
+        print('an NAN was found in the '+array_type+' '+en_grp+' mfp array')
+        print('indices:')
+        print(nan_locs)
+        print()
+        print('vn at those indices')
+        print(vn[nan_locs])
+        print()
+        print('ne at those indices')
+        print(ne[nan_locs])
+        print()
+        print('ni at those indices')
+        print(svion[nan_locs])
+        print()
+        print('svion at those indices')
+        print(vn[nan_locs])
+        print()
+        print('svcx at those indices')
+        print(svcx[nan_locs])
+        print()
+        print('svel at those indices')
+        print(svel[nan_locs])
+        print()
+        print('mfp array')
+        print(mfp)
+        print('stopping.')
         raise
 
 
@@ -279,22 +279,22 @@ def calc_refl_alb(cell_T, face_adj):
     refle_dict = {}
     refle_dict['s'] = refle_s
     refle_dict['t'] = refle_t
-    refle = namedtuple('refle', refle_dict.keys())(*refle_dict.values())
+    refle = namedtuple('refle', list(refle_dict.keys()))(*list(refle_dict.values()))
 
     refln_dict = {}
     refln_dict['s'] = refle_s
     refln_dict['t'] = refle_t
-    refln = namedtuple('refln', refln_dict.keys())(*refln_dict.values())
+    refln = namedtuple('refln', list(refln_dict.keys()))(*list(refln_dict.values()))
 
     refl_dict = {}
     refl_dict['e'] = refle
     refl_dict['n'] = refln
-    refl = namedtuple('refl', refl_dict.keys())(*refl_dict.values())
+    refl = namedtuple('refl', list(refl_dict.keys()))(*list(refl_dict.values()))
 
     alb_dict = {}
     alb_dict['s'] = alb_s
     alb_dict['t'] = alb_t
-    alb = namedtuple('alb', alb_dict.keys())(*alb_dict.values())
+    alb = namedtuple('alb', list(alb_dict.keys()))(*list(alb_dict.values()))
 
     return alb, refl, f_abs
 

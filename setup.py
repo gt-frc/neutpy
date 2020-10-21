@@ -8,7 +8,7 @@ deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 
 
 setuptools.setup(
     name="neutpy",
-    version="0.0.3",
+    version="0.0.4",
     author="Maxwell D. Hill, Jonathan J. Roveto",
     install_requires=deps,
     author_email="max.hill@pm.me, veto1024@gmail.com",
@@ -18,7 +18,8 @@ setuptools.setup(
     url="https://github.com/gt-frc/neutpy/",
     packages=setuptools.find_packages(),
     classifiers=[
-        "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3 :: Only",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Development Status :: 4 - Beta",
@@ -26,9 +27,9 @@ setuptools.setup(
         "Natural Language :: English",
         "Topic :: Scientific/Engineering :: Physics"
     ],
-    python_requires='>=2.7',
+    python_requires='>=3.8',
 )
 
 if __name__ == '__main__':
-    print "Test"
+    print("Test")
     pass

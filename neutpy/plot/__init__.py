@@ -1,3 +1,3 @@
 #!/usr/bin/python
 
-from plot import *
+from .plot import *
