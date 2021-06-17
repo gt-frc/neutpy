@@ -4,7 +4,8 @@ import setuptools
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
-deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 'pathos', 'PyYAML', 'Shapely']
+deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 'pathos', 'PyYAML', 'Shapely',
+        'GT3<=0.0.3']
 
 setuptools.setup(
     name="neutpy",
