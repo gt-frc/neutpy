@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # coding=utf-8
 
-from __future__ import division
+
 import numpy as np
 from scipy.interpolate import Rbf
 import matplotlib.pyplot as plt
@@ -33,7 +33,7 @@ def isnamedtupleinstance(x):
 
 def iterate_namedtuple(object, df):
     if isnamedtupleinstance(object):
-        for key, item in object._asdict().iteritems():
+        for key, item in object._asdict().items():
             if isnamedtupleinstance(item):
                 iterate_namedtuple(item, df)
             else:
@@ -182,7 +182,7 @@ class NeutpyTools:
         self.vars['flux_tot_ycomp'] = flux_tot_ycomp
         self.vars['flux_tot_mag'] = flux_tot_mag
 
-        print 'attempting to start plot_cell_vals'
+        print('attempting to start plot_cell_vals')
         self.plot_cell_vals()
 
 
@@ -217,13 +217,13 @@ class NeutpyTools:
                     the magnitude from "flux_net_av_mag" interpolation object.)
             """
 
-        if ntrl_pop is 'slow':
+        if ntrl_pop == 'slow':
             flux_in = self.flux_in_s[:, :-1]
             flux_out = self.flux_out_s[:, :-1]
-        elif ntrl_pop is 'thermal':
+        elif ntrl_pop == 'thermal':
             flux_in = self.flux_in_t[:, :-1]
             flux_out = self.flux_out_t[:, :-1]
-        elif ntrl_pop is 'total':
+        elif ntrl_pop == 'total':
             flux_in = self.flux_in_tot[:, :-1]
             flux_out = self.flux_out_tot[:, :-1]
 
@@ -301,7 +301,7 @@ def isinline(pt, line):
         return False
 
 def draw_line(R, Z, array, val, pathnum):
-    res = plt.contour(R, Z, array, [val]).collections[0].get_paths()[pathnum]
+    res = plt.contour(R, Z, array, [val], colors='r').collections[0].get_paths()[pathnum]
     # res = cntr.contour(R, Z, array).trace(val)[pathnum]
     x = res.vertices[:, 0]
     y = res.vertices[:, 1]
@@ -361,3 +361,39 @@ def calc_fsa(x, R, Z):
     fsa = np.sum(x_av * dA, axis=1) / np.sum(dA, axis=1)
     fsa[0] = x[0, 0]
     return fsa
+
+def remove_out_of_wall(wall_line, ls):
+
+    from shapely.affinity import translate
+    """
+    Remove segments that are outside the vessel and add in the intersection points
+
+    :param wall_line: The wallline
+    :type wall_line: LineString
+    :param ls: The linestring to be cleaned
+    :type ls: LineString
+    :return:
+    """
+
+    inters = wall_line.intersection(ls)
+    delta=1.0E-10
+    # Find which intersection is the left-most intersection with the wall
+    if inters[0].xy[0] < inters[1].xy[0]:
+        ib_pt = inters[0]
+        ob_pt = inters[1]
+    else:
+        ib_pt = inters[1]
+        ob_pt = inters[0]
+    # We need to shift the points over ever so slightly because of machine precision errors
+    ib_pt = translate(ib_pt, -1.0 * delta, -1.0 * delta)
+    ob_pt = translate(ob_pt, delta, -1.0 * delta)
+
+    clean_verts = ([ib_pt.xy[0][0]], [ib_pt.xy[1][0]])
+    verts = ls.xy
+    for x,y in zip(*verts):
+        if wall_line.convex_hull.contains(Point(x, y)):
+            clean_verts[0].append(x)
+            clean_verts[1].append(y)
+    clean_verts[0].append(ob_pt.xy[0][0])
+    clean_verts[1].append(ob_pt.xy[1][0])
+    return LineString(np.array((clean_verts[0], clean_verts[1]), float).T)

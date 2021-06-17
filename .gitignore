@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# .bak files
+
+*.bak
+
 # Distribution / packaging
 .Python
 env/
@@ -103,3 +107,9 @@ ENV/
 # triangle
 triangle
 triangle/
+
+# testing
+test.py
+
+# do not upload inputs to github
+inputs/
