@@ -5,11 +5,11 @@ import setuptools
 with open("README.md", "r") as fh:
     long_description = fh.read()
 deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 'pathos', 'PyYAML', 'Shapely',
-        'GT3<=0.0.3']
+        'GT3>=0.0.4']
 
 setuptools.setup(
     name="neutpy",
-    version="0.0.4",
+    version="0.0.5",
     author="Maxwell D. Hill, Jonathan J. Roveto",
     install_requires=deps,
     author_email="max.hill@pm.me, veto1024@gmail.com",
