@@ -77,6 +77,7 @@ from packaging import version
 from GT3.Psi import Psi
 from GT3.utilities.GT3LineString import GT3LineString
 
+from ._version import __version__
 
 try:
     import matplotlib.pyplot as plt
@@ -84,7 +85,8 @@ except ImportError:
     raise ImportError("Matplotlib failed to import and is a required package.")
 
 try:
-    if version.parse(pkg_resources.get_distribution('gt3').version) < version.parse('0.0.4'):
+    import GT3
+    if version.parse(GT3.__version__) < version.parse('0.0.4'):
         raise ImportError("GT3 v0.0.4 or newer required")
 except pkg_resources.DistributionNotFound as e:
     raise

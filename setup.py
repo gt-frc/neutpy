@@ -8,7 +8,7 @@ deps = ['matplotlib', 'multiprocess', 'scipy', 'numpy', 'matplotlib', 'pandas', 
 
 setuptools.setup(
     name="neutpy",
-    version="0.0.5",
+    version=open("neutpy/_version.py").readlines()[-1].split()[-1].strip("\"'"),
     author="Maxwell D. Hill, Jonathan J. Roveto",
     install_requires=deps,
     author_email="max.hill@pm.me, veto1024@gmail.com",
