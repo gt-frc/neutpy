@@ -103,7 +103,6 @@ class neutrals:
         self.cpu_cores = 1
         self.cpu_override = None
         self.config_loc = "neutpy.conf"
-        self._check_gt3()
         print('INITIALIZING NEUTPY')
         print(matplotlib.get_backend())
 
@@ -389,6 +388,10 @@ class neutrals:
             if not self.wall_line.convex_hull.contains(line):
                 segs = split(line, self.wall_line)
                 for a in segs:
+                    # If a segment is within a machine error length of the wall on the exterior side, Shapely
+                    # will call it Linestring with 2 coordinates, which is not a segment we want.
+                    if len(a.coords) <= 2:
+                        continue
                     if self.wall_line.convex_hull.contains(LineString(LineString(a.coords[:-1]).coords[1:])):
                         self.sol_lines_cut.append(line)
                     else:
@@ -1541,6 +1544,8 @@ class neutrals:
         # Collect configuration from main configuration file
 
         self.verbose = config.getint('Data', 'verbose')
+        if self.verbose:
+            print("Loading file %s" % (os.getcwd() + "/" + input_file))
         if not self.cpu_override:
             self.cpu_cores = config.getint('Data', 'cpu_cores')
         else:
