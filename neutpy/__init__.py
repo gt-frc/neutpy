@@ -84,17 +84,21 @@ try:
 except ImportError:
     raise ImportError("Matplotlib failed to import and is a required package.")
 
-try:
-    import GT3
-    if version.parse(GT3.__version__) < version.parse('0.0.4'):
-        raise ImportError("GT3 v0.0.4 or newer required")
-except pkg_resources.DistributionNotFound as e:
-    raise
+
 
 class neutrals:
 
 
     def __init__(self, verbose=False):
+
+        try:
+            import GT3
+            if version.parse(GT3.__version__) < version.parse('0.0.4'):
+                raise ImportError("GT3 v0.0.4 or newer required")
+        except pkg_resources.DistributionNotFound as e:
+            raise
+        except AttributeError as e:
+            pass
 
         self.lsides = None
         self.elecTemp = None
@@ -204,7 +208,7 @@ class neutrals:
         self.xs, self.ys = calc_cell_pts(self)
         return self
 
-    def from_gt3(self, gt3_core, gt3_inp):
+    def from_gt3(self, gt3_core, gt3_inp, *args, **kwargs):
 
         config = configparser.RawConfigParser()
         config.read(self.config_loc)
@@ -254,7 +258,7 @@ class neutrals:
 
         if self.verbose:
             print('Generating separatrix lines')
-        self._get_sep_lines()
+        self._get_sep_lines(**kwargs)
 
         if self.verbose:
             print('Generating core lines')
@@ -294,14 +298,14 @@ class neutrals:
         self.xs, self.ys = calc_cell_pts(self)
         return self
 
-    def _get_sep_lines(self):
+    def _get_sep_lines(self, *args, **kwargs):
         """
         Generate the separatric lines
 
         :rtype: None
 
         """
-        self.Psi = Psi(self.R, self.Z, self.psi, self.wall_line)
+        self.Psi = Psi(self.R, self.Z, self.psi, self.wall_line, **kwargs)
         self.m_axis = self.Psi.get_mag_axis()
 
         self.psi_norm = self.Psi.psi_norm_exp
@@ -894,7 +898,7 @@ class neutrals:
         wall_pts = np.asarray(self.wall_line.xy).T
         ib_int_pt = np.asarray(self.ib_div_line.intersection(self.wall_line).xy).T
         ob_int_pt = self.ob_div_line.intersection(self.wall_line)
-        wall_start_pos = np.where((wall_pts == ib_int_pt).all(axis=1))[0][0]
+        wall_start_pos = np.where(np.isclose(wall_pts, ib_int_pt, atol=1e-10))[0][0]
         wall_line_rolled = LineString(np.roll(wall_pts, -wall_start_pos, axis=0))
         wall_line_cut = cut(wall_line_rolled,
                             wall_line_rolled.project(ob_int_pt, normalized=True))[0]

@@ -7,7 +7,7 @@ class NeutpyUnitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.npi = neutpy.neutrals()
-        cls.npi.set_cpu_cores(6)
+        cls.npi.set_cpu_cores(8)
 
 class CommonMethods(object):
 
