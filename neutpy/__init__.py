@@ -71,6 +71,7 @@ from subprocess import call
 import time
 import matplotlib
 import configparser
+from warnings import warn
 import matplotlib.ticker as mticker
 import pkg_resources
 from packaging import version
@@ -140,7 +141,7 @@ class neutrals:
         # inp = read_infile(filename)
         raise NotImplementedError
 
-    def from_file(self, infile):
+    def from_file(self, infile, *args, **kwargs):
         """
         Instantiate NeutPy using the main configuration file as well as a file containing profile and plasma data.
         To set the configuration file, use the set_config method.
@@ -171,7 +172,7 @@ class neutrals:
 
         if self.verbose:
             print('Generating scrape-off layer')
-        self._sol_nT()
+        self._sol_nT(**kwargs)
 
         if self.verbose:
             print('Generating private flux region')
@@ -278,7 +279,7 @@ class neutrals:
 
         if self.verbose:
             print('Generating scrape-off layer')
-        self._sol_nT()
+        self._sol_nT(**kwargs)
 
         if self.verbose:
             print('Generating private flux region')
@@ -558,7 +559,7 @@ class neutrals:
             self.Ti_kev_pts = np.vstack((self.Ti_kev_pts, np.append(pt, self.Ti_kev_sep_val)))
             self.Te_kev_pts = np.vstack((self.Te_kev_pts, np.append(pt, self.Te_kev_sep_val)))
 
-    def _sol_nT(self):
+    def _sol_nT(self, *args, **kwargs):
         # Calculate n, T in SOL using Bohm diffusion, core data from radial profile input files, and input
         # divertor target densities and temperatures (replace with 2-pt divertor model later)
 
@@ -778,18 +779,29 @@ class neutrals:
         self.xi_pts = np.concatenate((xi_ib_div, xi_sep, xi_ob_div))
 
         # model perpendicular particle and heat transport using Bohm Diffusion
-        D_perp = Ti_xi / (16.0 * elementary_charge * BT_xi)
-        Chi_perp = 5.0 * Ti_xi / (32.0 * elementary_charge * BT_xi)
+        D_perp = Ti_xi[0] / (16.0 * elementary_charge * BT_xi[0])
+        Chi_perp = 5.0 * Ti_xi[0] / (32.0 * elementary_charge * BT_xi[0])
 
-        Gamma_perp = -D_perp * dnidr_xi
-        Q_perp = -ni_xi * Chi_perp * dTidr_xi -  3.0 * Ti_xi * D_perp * dnidr_xi
+        if kwargs.get("neutpy_D") and kwargs.get("neutpy_gamma"):
+            D_perp = float(kwargs.get("neutpy_D"))
+            Gamma_perp = kwargs.get("neutpy_gamma")
+            warn("Particle diffusion coefficient and gamma overridden", UserWarning)
+        else:
+            Gamma_perp = -D_perp * dnidr_xi[0]
 
-        delta_sol_n = D_perp * ni_xi / Gamma_perp
-        delta_sol_T = Chi_perp / (Q_perp / (ni_xi * Ti_xi) - 3.0 * D_perp / delta_sol_n)
+        if kwargs.get("neutpy_chi") and kwargs.get("neutpy_q"):
+            Chi_perp = float(kwargs.get("neutpy_chi"))
+            Q_perp = kwargs.get("neutpy_q")
+            warn("Heat conduction coefficient and Q overridden", UserWarning)
+        else:
+            Q_perp = -ni_xi[0] * Chi_perp * dTidr_xi[0] - 3.0 * Ti_xi[0] * D_perp * dnidr_xi[0]
+
+        delta_sol_n = D_perp * ni_xi[0] / Gamma_perp
+        delta_sol_T = Chi_perp / (Q_perp / (ni_xi[0] * Ti_xi[0]) - 3.0 * D_perp / delta_sol_n)
 
         delta_min = 0.005
-        delta_sol_n[delta_sol_n < delta_min] = delta_min
-        delta_sol_T[delta_sol_T < delta_min] = delta_min
+        if delta_sol_n < delta_min: delta_sol_n = delta_min
+        if delta_sol_T < delta_min: delta_sol_T = delta_min
 
         delta_sol_E = 2 / 7 * delta_sol_T
         # plt.plot(delta_sol_n)
@@ -834,9 +846,6 @@ class neutrals:
         # xi_pts,
         # method='linear',
         # fill_value='np.nan')
-
-        #TODO: R_max affects the results of the calculation. Need to figure out why.
-
         r_max = 0.7
         """The maximum radius of the 2D interpolation of n/T"""
 
@@ -844,10 +853,10 @@ class neutrals:
 
         r_pts = np.linspace(0, r_max, twoptdiv_r_pts)
         xi, r = np.meshgrid(self.xi_pts, r_pts)
-        self.sol_ni = ni_xi * np.exp(-r / delta_sol_n[0])
-        self.sol_ne = ne_xi * np.exp(-r / delta_sol_n[0])
-        self.sol_Ti = Ti_xi * np.exp(-r / delta_sol_T[0])
-        self.sol_Te = Te_xi * np.exp(-r / delta_sol_T[0])
+        self.sol_ni = ni_xi * np.exp(-r / delta_sol_n)
+        self.sol_ne = ne_xi * np.exp(-r / delta_sol_n)
+        self.sol_Ti = Ti_xi * np.exp(-r / delta_sol_T)
+        self.sol_Te = Te_xi * np.exp(-r / delta_sol_T)
 
         # draw sol lines through 2d strip model to get n, T along the lines
         sol_line_dist = np.zeros((len(self.xi_pts), len(self.sol_lines_cut)))
@@ -884,15 +893,15 @@ class neutrals:
 
         # append to master arrays
         for i, line in enumerate(self.sol_lines_cut):
-            pts_ni_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_ni[:, i]))
-            pts_ne_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_ne[:, i]))
-            pts_Ti_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_Ti[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
-            pts_Te_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_Te[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
+            self._pts_ni_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_ni[:, i]))
+            self._pts_ne_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_ne[:, i]))
+            self._pts_Ti_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_Ti[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
+            self._pts_Te_sol = np.column_stack((sol_nT_pts[:, :, i], sol_line_Te[:, i] / 1.0E3 / 1.6021E-19))  # converting back to kev
 
-            self.ni_pts = np.vstack((self.ni_pts, pts_ni_sol))
-            self.ne_pts = np.vstack((self.ne_pts, pts_ne_sol))
-            self.Ti_kev_pts = np.vstack((self.Ti_kev_pts, pts_Ti_sol))
-            self.Te_kev_pts = np.vstack((self.Te_kev_pts, pts_Te_sol))
+            self.ni_pts = np.vstack((self.ni_pts, self._pts_ni_sol))
+            self.ne_pts = np.vstack((self.ne_pts, self._pts_ne_sol))
+            self.Ti_kev_pts = np.vstack((self.Ti_kev_pts, self._pts_Ti_sol))
+            self.Te_kev_pts = np.vstack((self.Te_kev_pts, self._pts_Te_sol))
 
         # draw wall line through 2d strip model to get n, T along the line
         wall_pts = np.asarray(self.wall_line.xy).T
