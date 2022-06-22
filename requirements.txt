@@ -19,7 +19,7 @@ lockfile==0.12.2
 matplotlib==2.2.5
 msgpack==0.6.2
 multiprocess==0.70.11.dev0
-numpy==1.16.6
+numpy==1.22.0
 packaging==20.3
 pandas==0.24.2
 pathlib2==2.3.5
